@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "name": "reset-password",
+  "entrypoint": "index.ts",
+  "verify_jwt": false
+}
