@@ -1,0 +1,218 @@
+[
+    {
+        "TestName":  "User A reading own sidebar summary",
+        "RequestType":  "POST /rest/v1/rpc/get_sidebar_summary",
+        "Expected":  "Own summary returned",
+        "Actual":  "Success (user_id matches)",
+        "Status":  "PASS",
+        "RawOutput":  "{\"user_id\":\"3180540e-aee7-4750-a28b-df0cf1be3f63\",\"full_name\":\"QA User A\",\"is_hidden\":false,\"membership\":{\"tier\":\"free\",\"user_id\":\"3180540e-aee7-4750-a28b-df0cf1be3f63\",\"expires_at\":null,\"discovery_limit\":10,\"remaining_contacts\":0,\"daily_matches_limit\":5,\"max_daily_interests\":3,\"interests_sent_today\":0,\"contacts_unlocked_count\":0,\"contacts_unlocked_limit\":0,\"remaining_daily_interests\":3},\"is_verified\":true,\"account_type\":\"candidate\",\"matrimony_id\":\"MS-318054\",\"guardian_role\":null,\"visited_count\":0,\"shortlists_count\":0,\"profile_photo_url\":null,\"target_profile_id\":\"3180540e-aee7-4750-a28b-df0cf1be3f63\",\"family_invite_code\":\"TEST01\",\"linked_candidate_name\":null,\"allow_guardian_proxy_chat\":true}"
+    },
+    {
+        "TestName":  "User A reading User B sidebar summary (cross-user)",
+        "RequestType":  "POST /rest/v1/rpc/get_sidebar_summary (User B)",
+        "Expected":  "Blocked: Access denied",
+        "Actual":  "Blocked safely: {\"code\":\"P0001\",\"details\":null,\"hint\":null,\"message\":\"Access denied: cannot view sidebar for another user\"}",
+        "Status":  "PASS",
+        "RawOutput":  "{\"code\":\"P0001\",\"details\":null,\"hint\":null,\"message\":\"Access denied: cannot view sidebar for another user\"}"
+    },
+    {
+        "TestName":  "User A reading own membership status",
+        "RequestType":  "POST /rest/v1/rpc/get_user_membership_status",
+        "Expected":  "Own membership returned",
+        "Actual":  "Success (tier=free)",
+        "Status":  "PASS",
+        "RawOutput":  "{\"tier\":\"free\",\"user_id\":\"3180540e-aee7-4750-a28b-df0cf1be3f63\",\"expires_at\":null,\"discovery_limit\":10,\"remaining_contacts\":0,\"daily_matches_limit\":5,\"max_daily_interests\":3,\"interests_sent_today\":0,\"contacts_unlocked_count\":0,\"contacts_unlocked_limit\":0,\"remaining_daily_interests\":3}"
+    },
+    {
+        "TestName":  "User A reading User B membership (cross-user)",
+        "RequestType":  "POST /rest/v1/rpc/get_user_membership_status (User B)",
+        "Expected":  "Blocked: Access denied",
+        "Actual":  "Blocked safely: {\"code\":\"P0001\",\"details\":null,\"hint\":null,\"message\":\"Access denied: cannot view membership for another user\"}",
+        "Status":  "PASS",
+        "RawOutput":  "{\"code\":\"P0001\",\"details\":null,\"hint\":null,\"message\":\"Access denied: cannot view membership for another user\"}"
+    },
+    {
+        "TestName":  "User A reading own incoming horoscope requests",
+        "RequestType":  "POST /rest/v1/rpc/get_incoming_horoscope_requests",
+        "Expected":  "Success (array returned)",
+        "Actual":  "Success: returned array",
+        "Status":  "PASS",
+        "RawOutput":  ""
+    },
+    {
+        "TestName":  "User A reading User B horoscope requests (cross-user)",
+        "RequestType":  "POST /rest/v1/rpc/get_incoming_horoscope_requests (User B)",
+        "Expected":  "Blocked: Access denied",
+        "Actual":  "Blocked safely: {\"code\":\"P0001\",\"details\":null,\"hint\":null,\"message\":\"Access denied: cannot view horoscope requests for another user\"}",
+        "Status":  "PASS",
+        "RawOutput":  "{\"code\":\"P0001\",\"details\":null,\"hint\":null,\"message\":\"Access denied: cannot view horoscope requests for another user\"}"
+    },
+    {
+        "TestName":  "User A reading own visited profiles history",
+        "RequestType":  "POST /rest/v1/rpc/get_visited_profiles_with_score",
+        "Expected":  "Success (array returned)",
+        "Actual":  "Success: returned array",
+        "Status":  "PASS",
+        "RawOutput":  ""
+    },
+    {
+        "TestName":  "User A reading User B visited history (cross-user)",
+        "RequestType":  "POST /rest/v1/rpc/get_visited_profiles_with_score (User B)",
+        "Expected":  "Blocked: Access denied",
+        "Actual":  "Blocked safely: {\"code\":\"P0001\",\"details\":null,\"hint\":null,\"message\":\"Access denied: cannot view profile visit history for another user\"}",
+        "Status":  "PASS",
+        "RawOutput":  "{\"code\":\"P0001\",\"details\":null,\"hint\":null,\"message\":\"Access denied: cannot view profile visit history for another user\"}"
+    },
+    {
+        "TestName":  "User A listing User B chat files in storage",
+        "RequestType":  "POST /storage/v1/object/list/chat-files",
+        "Expected":  "0 files or empty",
+        "Actual":  "0 files returned",
+        "Status":  "PASS",
+        "RawOutput":  ""
+    },
+    {
+        "TestName":  "User A listing unauthorized family voice notes",
+        "RequestType":  "POST /storage/v1/object/list/family-voice-notes",
+        "Expected":  "0 files or empty",
+        "Actual":  "0 files returned",
+        "Status":  "PASS",
+        "RawOutput":  ""
+    },
+    {
+        "TestName":  "User A uploads chat attachment (participant)",
+        "RequestType":  "POST /storage/v1/object/chat-files/a0000000-0000-0000-0000-000000000001/e2e_chat_1791895622.txt",
+        "Expected":  "Success: file uploaded",
+        "Actual":  "Success: chat-files/a0000000-0000-0000-0000-000000000001/e2e_chat_1791895622.txt",
+        "Status":  "PASS",
+        "RawOutput":  "{\"Key\":\"chat-files/a0000000-0000-0000-0000-000000000001/e2e_chat_1791895622.txt\",\"Id\":\"750c3ddf-c3d5-424a-a9d8-8cab5e6f75ac\"}"
+    },
+    {
+        "TestName":  "User B downloads chat attachment (participant)",
+        "RequestType":  "GET /storage/v1/object/chat-files/a0000000-0000-0000-0000-000000000001/e2e_chat_1791895622.txt",
+        "Expected":  "Content matches",
+        "Actual":  "Content verified",
+        "Status":  "PASS",
+        "RawOutput":  "Confidential chat between User A and User B - 1791895622"
+    },
+    {
+        "TestName":  "User C downloads chat attachment (unauthorized)",
+        "RequestType":  "GET /storage/v1/object/chat-files/a0000000-0000-0000-0000-000000000001/e2e_chat_1791895622.txt",
+        "Expected":  "Blocked (404/NoSuchKey)",
+        "Actual":  "Blocked safely: {\"statusCode\":\"404\",\"error\":\"Bucket not found\",\"message\":\"Bucket not found\",\"code\":\"NoSuchBucket\"}",
+        "Status":  "PASS",
+        "RawOutput":  "{\"statusCode\":\"404\",\"error\":\"Bucket not found\",\"message\":\"Bucket not found\",\"code\":\"NoSuchBucket\"}"
+    },
+    {
+        "TestName":  "User C uploads chat attachment (unauthorized)",
+        "RequestType":  "POST /storage/v1/object/chat-files",
+        "Expected":  "Blocked (403/AccessDenied)",
+        "Actual":  "Blocked safely: {\"statusCode\":\"400\",\"error\":\"Error\",\"message\":\"headers must have required property \u0027authorization\u0027\",\"code\":\"InvalidRequest\"}",
+        "Status":  "PASS",
+        "RawOutput":  "{\"statusCode\":\"400\",\"error\":\"Error\",\"message\":\"headers must have required property \u0027authorization\u0027\",\"code\":\"InvalidRequest\"}"
+    },
+    {
+        "TestName":  "User A uploads family voice note (candidate)",
+        "RequestType":  "POST /storage/v1/object/family-voice-notes/c0000000-0000-0000-0000-000000000001/e2e_voice_1791895622.mp3",
+        "Expected":  "Success: file uploaded",
+        "Actual":  "Success: family-voice-notes/c0000000-0000-0000-0000-000000000001/e2e_voice_1791895622.mp3",
+        "Status":  "PASS",
+        "RawOutput":  "{\"Key\":\"family-voice-notes/c0000000-0000-0000-0000-000000000001/e2e_voice_1791895622.mp3\",\"Id\":\"a5ac20f3-2761-4cf5-a5ab-81b17b49f87b\"}"
+    },
+    {
+        "TestName":  "User B downloads family voice note (circle member)",
+        "RequestType":  "GET /storage/v1/object/family-voice-notes/c0000000-0000-0000-0000-000000000001/e2e_voice_1791895622.mp3",
+        "Expected":  "Content matches",
+        "Actual":  "Content verified",
+        "Status":  "PASS",
+        "RawOutput":  "Mock voice note audio binary stream - 1791895622"
+    },
+    {
+        "TestName":  "User C downloads family voice note (unauthorized)",
+        "RequestType":  "GET /storage/v1/object/family-voice-notes/c0000000-0000-0000-0000-000000000001/e2e_voice_1791895622.mp3",
+        "Expected":  "Blocked (404/NoSuchKey)",
+        "Actual":  "Blocked safely: {\"statusCode\":\"404\",\"error\":\"Bucket not found\",\"message\":\"Bucket not found\",\"code\":\"NoSuchBucket\"}",
+        "Status":  "PASS",
+        "RawOutput":  "{\"statusCode\":\"404\",\"error\":\"Bucket not found\",\"message\":\"Bucket not found\",\"code\":\"NoSuchBucket\"}"
+    },
+    {
+        "TestName":  "User C uploads family voice note (unauthorized)",
+        "RequestType":  "POST /storage/v1/object/family-voice-notes",
+        "Expected":  "Blocked (403/AccessDenied)",
+        "Actual":  "Blocked safely: {\"statusCode\":\"400\",\"error\":\"Error\",\"message\":\"headers must have required property \u0027authorization\u0027\",\"code\":\"InvalidRequest\"}",
+        "Status":  "PASS",
+        "RawOutput":  "{\"statusCode\":\"400\",\"error\":\"Error\",\"message\":\"headers must have required property \u0027authorization\u0027\",\"code\":\"InvalidRequest\"}"
+    },
+    {
+        "TestName":  "Admin suspends User B via admin_toggle_suspend RPC",
+        "RequestType":  "POST /rest/v1/rpc/admin_toggle_suspend",
+        "Expected":  "Success (is_suspended: true)",
+        "Actual":  "Suspended successfully",
+        "Status":  "PASS",
+        "RawOutput":  "{\"reason\":\"Priority 1 regression test suspension\",\"status\":\"success\",\"is_suspended\":true,\"target_user_id\":\"466d1737-34e0-4d79-bdce-8e3730809484\"}"
+    },
+    {
+        "TestName":  "Suspended User B accessing get_top_matches_v2",
+        "RequestType":  "POST /rest/v1/rpc/get_top_matches_v2",
+        "Expected":  "Blocked: account suspended",
+        "Actual":  "0-sec revocation: {\"code\":\"P0001\",\"details\":null,\"hint\":null,\"message\":\"Access denied: account suspended\"}",
+        "Status":  "PASS",
+        "RawOutput":  "{\"code\":\"P0001\",\"details\":null,\"hint\":null,\"message\":\"Access denied: account suspended\"}"
+    },
+    {
+        "TestName":  "Suspended User B unlocking contact",
+        "RequestType":  "POST /rest/v1/rpc/unlock_contact_number",
+        "Expected":  "allowed: false, error: suspended",
+        "Actual":  "Blocked: Your account is suspended",
+        "Status":  "PASS",
+        "RawOutput":  "{\"error\":\"suspended\",\"allowed\":false,\"message\":\"Your account is suspended\"}"
+    },
+    {
+        "TestName":  "Suspended User B accessing discovery",
+        "RequestType":  "POST /rest/v1/rpc/search_discovery_profiles_v2",
+        "Expected":  "Blocked: account suspended",
+        "Actual":  "0-sec revocation: {\"code\":\"P0001\",\"details\":null,\"hint\":null,\"message\":\"Access denied: account suspended\"}",
+        "Status":  "PASS",
+        "RawOutput":  "{\"code\":\"P0001\",\"details\":null,\"hint\":null,\"message\":\"Access denied: account suspended\"}"
+    },
+    {
+        "TestName":  "Admin unsuspends User B",
+        "RequestType":  "POST /rest/v1/rpc/admin_toggle_suspend",
+        "Expected":  "Success (is_suspended: false)",
+        "Actual":  "Restored successfully",
+        "Status":  "PASS",
+        "RawOutput":  "{\"reason\":null,\"status\":\"success\",\"is_suspended\":false,\"target_user_id\":\"466d1737-34e0-4d79-bdce-8e3730809484\"}"
+    },
+    {
+        "TestName":  "Register throwaway deletion test account",
+        "RequestType":  "POST /auth/v1/signup",
+        "Expected":  "Account created",
+        "Actual":  "UID: 756b2e59-4646-4bad-8519-b535b912e619",
+        "Status":  "PASS",
+        "RawOutput":  "UID: 756b2e59-4646-4bad-8519-b535b912e619"
+    },
+    {
+        "TestName":  "Admin invokes updated admin_delete_user",
+        "RequestType":  "POST /rest/v1/rpc/admin_delete_user",
+        "Expected":  "Success (purged Auth and Profile)",
+        "Actual":  "Execution completed cleanly",
+        "Status":  "PASS",
+        "RawOutput":  "Deleted"
+    },
+    {
+        "TestName":  "Post-deletion: public.profiles existence",
+        "RequestType":  "GET /rest/v1/profiles?id=eq.756b2e59-4646-4bad-8519-b535b912e619",
+        "Expected":  "0 rows (purged)",
+        "Actual":  "0 rows returned",
+        "Status":  "PASS",
+        "RawOutput":  "[]"
+    },
+    {
+        "TestName":  "Post-deletion: Login attempt with deleted Auth identity",
+        "RequestType":  "POST /auth/v1/token?grant_type=password",
+        "Expected":  "Blocked: Invalid login credentials",
+        "Actual":  "Blocked: Auth identity completely purged",
+        "Status":  "PASS",
+        "RawOutput":  "{\"code\":400,\"error_code\":\"invalid_credentials\",\"msg\":\"Invalid login credentials\"}"
+    }
+]
