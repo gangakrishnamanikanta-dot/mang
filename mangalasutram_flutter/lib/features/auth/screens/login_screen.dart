@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 import '../../../constants/theme.dart';
-import '../../../shared/widgets/apple_scale_button.dart';
+import '../../../shared/widgets/scale_button.dart';
 import '../providers/auth_provider.dart';
 import 'widgets/auth_background.dart';
 import '../../../core/di.dart';
@@ -23,6 +25,10 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _isSubmitting = false;
 
+  // Rate-limit countdown
+  int _rateLimitSecondsLeft = 0;
+  Timer? _rateLimitTimer;
+
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
@@ -33,6 +39,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
     _phoneCtrl.dispose();
+    _rateLimitTimer?.cancel();
     super.dispose();
   }
 
@@ -42,8 +49,26 @@ class _LoginScreenState extends State<LoginScreen> {
     HapticFeedback.selectionClick();
   }
 
+  void _startRateLimitCountdown(int seconds) {
+    _rateLimitTimer?.cancel();
+    setState(() => _rateLimitSecondsLeft = seconds);
+    _rateLimitTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      if (_rateLimitSecondsLeft <= 1) {
+        t.cancel();
+        setState(() => _rateLimitSecondsLeft = 0);
+      } else {
+        setState(() => _rateLimitSecondsLeft--);
+      }
+    });
+  }
+
   Future<void> _handleLogin() async {
     if (_isSubmitting) return;
+    if (_rateLimitSecondsLeft > 0) return;
     setState(() => _isSubmitting = true);
 
     if (_isEmailMode) {
@@ -51,48 +76,70 @@ class _LoginScreenState extends State<LoginScreen> {
       final password = _passwordCtrl.text.trim();
       if (email.isEmpty || password.isEmpty) {
         _showError('Please enter email and password');
+        setState(() => _isSubmitting = false);
         return;
       }
       final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+');
       if (!emailRegex.hasMatch(email)) {
         _showError('Please enter a valid email address');
+        setState(() => _isSubmitting = false);
         return;
       }
 
       try {
-        await SupabaseService.client.auth.signInWithPassword(
-          email: email,
-          password: password,
-        );
+        await SupabaseService.client.auth
+            .signInWithPassword(email: email, password: password)
+            .timeout(const Duration(seconds: 15));
         if (!mounted) return;
-        _showSuccess('Welcome back!');
-        await context.read<AuthProvider>().refreshProfile();
+        final auth = context.read<AuthProvider>();
+        await auth.refreshProfile();
+        if (auth.hasError && auth.errorMessage != null) {
+          _showError(auth.errorMessage!);
+        }
       } on AuthException catch (e) {
-        _showError(_friendlyAuthMessage(e.message));
+        final msg = _friendlyAuthMessage(e.message);
+        _showError(msg);
+        if (msg.contains('wait') || msg.contains('attempts')) {
+          _startRateLimitCountdown(30);
+        }
       } on AppException catch (e) {
         _showError(e.message);
       } catch (_) {
         _showError('Something went wrong. Please try again.');
       }
     } else {
-      final phone = _phoneCtrl.text.trim();
-      if (phone.isEmpty) {
+      final rawPhone = _phoneCtrl.text.trim();
+      if (rawPhone.isEmpty) {
         _showError('Please enter your phone number');
-        return;
-      }
-      if (phone.length < 10) {
-        _showError('Please enter a valid phone number');
+        setState(() => _isSubmitting = false);
         return;
       }
 
+      String cleanPhone = rawPhone.replaceAll(RegExp(r'[\s\-()]'), '');
+      if (cleanPhone.startsWith('0')) cleanPhone = cleanPhone.substring(1);
+      if (cleanPhone.startsWith('+91')) {
+        cleanPhone = cleanPhone.substring(3);
+      } else if (cleanPhone.startsWith('91') && cleanPhone.length == 12) {
+        cleanPhone = cleanPhone.substring(2);
+      }
+
+      final indianPhoneRegex = RegExp(r'^[6-9]\d{9}$');
+      if (!indianPhoneRegex.hasMatch(cleanPhone)) {
+        _showError('Please enter a valid 10-digit Indian mobile number');
+        setState(() => _isSubmitting = false);
+        return;
+      }
+
+      final formattedPhone = '+91$cleanPhone';
       try {
-        await SupabaseService.client.auth.signInWithOtp(phone: phone);
+        await SupabaseService.client.auth
+            .signInWithOtp(phone: formattedPhone)
+            .timeout(const Duration(seconds: 15));
         if (!mounted) return;
-        _showSuccess('OTP sent to your phone!');
         Navigator.pushNamed(
           context,
           '/otp-verification',
-          arguments: {'phone': phone, 'purpose': 'login'},
+          arguments: {'phone': formattedPhone, 'purpose': 'login'},
         );
       } on AuthException catch (e) {
         _showError(_friendlyAuthMessage(e.message));
@@ -107,12 +154,10 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _handleGoogleSignIn() async {
     if (_isSubmitting) return;
     setState(() => _isSubmitting = true);
-
     try {
       await _authService.signInWithGoogle();
       if (!mounted) return;
       await context.read<AuthProvider>().refreshProfile();
-      _showSuccess('Welcome!');
     } on AuthException catch (e) {
       _showError(_friendlyAuthMessage(e.message));
     } on AppException catch (e) {
@@ -125,14 +170,16 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _showError(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: const Color(0xFFD32F2F)),
-    );
-  }
-
-  void _showSuccess(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: const Color(0xFF2E7D32)),
+      SnackBar(
+        content: Text(msg, style: GoogleFonts.inter(color: Colors.white)),
+        backgroundColor: const Color(0xFFD32F2F),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(12),
+      ),
     );
   }
 
@@ -145,38 +192,56 @@ class _LoginScreenState extends State<LoginScreen> {
       return 'Please verify your email first';
     }
     if (lower.contains('too many requests') || lower.contains('rate limit')) {
-      return 'Too many attempts. Please wait a moment and try again';
+      return 'Too many attempts. Please wait and try again';
     }
     if (lower.contains('user not found')) {
-      return 'No account found with this email';
+      return 'Incorrect email or password';
     }
     return raw;
   }
 
   @override
   Widget build(BuildContext context) {
-    final isBusy = _isSubmitting;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final logoHeight = (screenHeight * 0.22).clamp(120.0, 200.0);
+
     return Scaffold(
-      resizeToAvoidBottomInset: false,
+      // KEY FIX: keyboard scrolls the page instead of hiding inputs
+      resizeToAvoidBottomInset: true,
       body: AuthBackground(
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => FocusScope.of(context).unfocus(),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(height: screenHeight * 0.04),
+                // Responsive logo
                 Center(
                   child: Image.asset(
                     'assets/images/logo.png',
-                    height: 200,
+                    height: logoHeight,
                     fit: BoxFit.contain,
                     errorBuilder: (context, error, stackTrace) {
-                      return Icon(Icons.favorite_rounded, color: AppColors.gold, size: 80);
+                      return Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppColors.gold, width: 1.5),
+                          color: AppColors.primary.withValues(alpha: 0.07),
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.auto_awesome, color: AppColors.gold, size: 36),
+                        ),
+                      );
                     },
                   ),
                 ),
-                const SizedBox(height: 0),
+                const SizedBox(height: 16),
                 AuthCard(
                   child: Column(
                     children: [
@@ -185,14 +250,14 @@ class _LoginScreenState extends State<LoginScreen> {
                       if (_isEmailMode) ...[
                         AuthTextField(
                           controller: _emailCtrl,
-                          hint: 'enter your email',
+                          hint: 'Enter your email',
                           icon: Icons.email_outlined,
                           keyboardType: TextInputType.emailAddress,
                         ),
                         const SizedBox(height: 16),
                         AuthTextField(
                           controller: _passwordCtrl,
-                          hint: 'enter your password',
+                          hint: 'Enter your password',
                           icon: Icons.lock_outline,
                           obscureText: _obscurePassword,
                           suffixIcon: IconButton(
@@ -215,21 +280,47 @@ class _LoginScreenState extends State<LoginScreen> {
                               minimumSize: Size.zero,
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),
-                            child: const Text('Forgot Password?', style: TextStyle(fontSize: 13)),
+                            child: Text(
+                              'Forgot Password?',
+                              style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500),
+                            ),
                           ),
                         ),
                       ] else ...[
                         AuthTextField(
                           controller: _phoneCtrl,
-                          hint: 'enter your mobile',
+                          hint: 'Enter your mobile number',
                           icon: Icons.phone_outlined,
                           keyboardType: TextInputType.phone,
                         ),
                       ],
-                      const SizedBox(height: 28),
-                      AppleScaleButton(
-                        onPressed: isBusy ? null : _handleLogin,
+                      const SizedBox(height: 20),
+
+                      // Rate limit warning
+                      if (_rateLimitSecondsLeft > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.timer_outlined, size: 16, color: Color(0xFFD32F2F)),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Try again in ${_rateLimitSecondsLeft}s',
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  color: const Color(0xFFD32F2F),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                      ScaleButton(
+                        onPressed: (_isSubmitting || _rateLimitSecondsLeft > 0) ? null : _handleLogin,
                         text: _isEmailMode ? 'Login' : 'Send OTP',
+                        isLoading: _isSubmitting,
                         color: AppColors.primary,
                         textColor: Colors.white,
                         hasShadow: true,
@@ -237,12 +328,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 20),
                       Row(
                         children: [
-                          Expanded(child: Divider(color: const Color(0xFFE0D8CC), thickness: 1)),
-                          const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 16),
-                            child: Text('Or login with', style: TextStyle(color: Color(0xFFB0A090), fontSize: 13)),
+                          const Expanded(child: Divider(color: Color(0xFFE0D8CC), thickness: 1)),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              'Or login with',
+                              style: GoogleFonts.inter(color: const Color(0xFFB0A090), fontSize: 13),
+                            ),
                           ),
-                          Expanded(child: Divider(color: const Color(0xFFE0D8CC), thickness: 1)),
+                          const Expanded(child: Divider(color: Color(0xFFE0D8CC), thickness: 1)),
                         ],
                       ),
                       const SizedBox(height: 20),
@@ -254,7 +348,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text("New to Mangalasutram? ", style: TextStyle(color: Color(0xFF8B7355), fontSize: 14)),
+                    Text(
+                      'New to Mangalasutram? ',
+                      style: GoogleFonts.inter(color: const Color(0xFF8B7355), fontSize: 14),
+                    ),
                     TextButton(
                       onPressed: () => Navigator.pushNamed(context, '/signup'),
                       style: TextButton.styleFrom(
@@ -263,16 +360,21 @@ class _LoginScreenState extends State<LoginScreen> {
                         minimumSize: Size.zero,
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
-                      child: const Text('Register Now', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                      child: Text(
+                        'Register Now',
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14),
+                      ),
                     ),
                   ],
                 ),
+                const SizedBox(height: 24),
               ],
             ),
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildToggle() {
@@ -297,7 +399,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 alignment: Alignment.center,
                 child: Text(
                   'Email',
-                  style: TextStyle(
+                  style: GoogleFonts.inter(
                     color: _isEmailMode ? Colors.white : const Color(0xFF8B7355),
                     fontWeight: FontWeight.w600,
                     fontSize: 14,
@@ -319,7 +421,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 alignment: Alignment.center,
                 child: Text(
                   'Mobile',
-                  style: TextStyle(
+                  style: GoogleFonts.inter(
                     color: !_isEmailMode ? Colors.white : const Color(0xFF8B7355),
                     fontWeight: FontWeight.w600,
                     fontSize: 14,
@@ -343,10 +445,20 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       child: TextButton.icon(
         onPressed: _isSubmitting ? null : _handleGoogleSignIn,
-        icon: Image.asset('assets/images/google_logo.png', height: 24, width: 24, fit: BoxFit.contain),
-        label: const Text(
+        icon: Image.asset(
+          'assets/images/google_logo.png',
+          height: 22,
+          width: 22,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) => const Icon(Icons.g_mobiledata, size: 24),
+        ),
+        label: Text(
           'Continue with Google',
-          style: TextStyle(color: Color(0xFF3E2723), fontWeight: FontWeight.w600, fontSize: 15),
+          style: GoogleFonts.inter(
+            color: const Color(0xFF3E2723),
+            fontWeight: FontWeight.w600,
+            fontSize: 15,
+          ),
         ),
       ),
     );

@@ -13,15 +13,25 @@ class Profile {
   final int? casteId;
   final String? subCaste;
 
-  // Religious / Traditional (Brahmin-specific)
+  // Religious / Traditional (Astrology Details)
   final int? gothramId;
   final String? pravara;
   final int? vedaShakhaId;
   final int? nakshatraId;
   final int? rashiId;
   final int? padaId;
+  final String? timeOfBirth;
+  final String? placeOfBirth;
+  final bool? isManglik;
   final String? horoscopeUrl;
   final String? kujaDosham;
+  final String? sampradayam;
+  final String? kuladevata;
+  final String? sandhyavandanam;
+  final String? dailyPooja;
+  final String? slokaChanting;
+  final String? templeVisits;
+  final String? festivalParticipation;
 
   // Education & Career
   final int? highestEducationId;
@@ -30,6 +40,8 @@ class Profile {
   final String? company;
   final int? annualIncomeId;
   final String? workLocation;
+  final String? workType;
+  final String? careerPreference;
 
   // Family
   final String? fatherName;
@@ -43,11 +55,17 @@ class Profile {
   final int? countryId;
   final String? state;
   final String? city;
+  final String? familyValues;
+  final String? familyDescription;
 
-  // Lifestyle
+  // Lifestyle & Personality
   final int? foodPreferenceId;
   final int? smokingId;
   final int? drinkingId;
+  final String? fitnessHabits;
+  final String? personalityType;
+  final String? spiritualLevel;
+  final List<String>? culturalInterests;
   final String? aboutMe;
   final List<String>? hobbies;
 
@@ -69,6 +87,12 @@ class Profile {
   final bool isVerified;
   final String createdAt;
   final String updatedAt;
+  final String? lastActiveAt;
+  final String accountType;
+  final bool allowGuardianProxyChat;
+  final bool isHidden;
+  final bool isSuspended;
+  final String? suspensionReason;
 
   Profile({
     required this.id,
@@ -88,14 +112,26 @@ class Profile {
     this.nakshatraId,
     this.rashiId,
     this.padaId,
+    this.timeOfBirth,
+    this.placeOfBirth,
+    this.isManglik,
     this.horoscopeUrl,
     this.kujaDosham,
+    this.sampradayam,
+    this.kuladevata,
+    this.sandhyavandanam,
+    this.dailyPooja,
+    this.slokaChanting,
+    this.templeVisits,
+    this.festivalParticipation,
     this.highestEducationId,
     this.college,
     this.occupationId,
     this.company,
     this.annualIncomeId,
     this.workLocation,
+    this.workType,
+    this.careerPreference,
     this.fatherName,
     this.fatherOccupation,
     this.motherName,
@@ -107,9 +143,15 @@ class Profile {
     this.countryId,
     this.state,
     this.city,
+    this.familyValues,
+    this.familyDescription,
     this.foodPreferenceId,
     this.smokingId,
     this.drinkingId,
+    this.fitnessHabits,
+    this.personalityType,
+    this.spiritualLevel,
+    this.culturalInterests,
     this.aboutMe,
     this.hobbies,
     this.profilePhotoUrl,
@@ -125,17 +167,23 @@ class Profile {
     this.isVerified = false,
     required this.createdAt,
     required this.updatedAt,
+    this.lastActiveAt,
+    this.accountType = 'candidate',
+    this.allowGuardianProxyChat = true,
+    this.isHidden = false,
+    this.isSuspended = false,
+    this.suspensionReason,
   });
 
   factory Profile.fromJson(Map<String, dynamic> json) {
     return Profile(
-      id: json['id'].toString(),
+      id: json['id'] as String? ?? '',
       email: json['email'] as String? ?? '',
       phone: json['phone'] as String?,
       fullName: json['full_name'] as String? ?? '',
       gender: json['gender'] as String?,
       dateOfBirth: json['date_of_birth'] as String?,
-      heightInches: json['height_inches']?.toInt(),
+      heightInches: json['height_inches'] as int?,
       maritalStatusId: json['marital_status_id'] as int?,
       motherTongueId: json['mother_tongue_id'] as int?,
       casteId: json['caste_id'] as int?,
@@ -146,14 +194,26 @@ class Profile {
       nakshatraId: json['nakshatra_id'] as int?,
       rashiId: json['rashi_id'] as int?,
       padaId: json['pada_id'] as int?,
+      timeOfBirth: json['time_of_birth'] as String?,
+      placeOfBirth: json['place_of_birth'] as String?,
+      isManglik: json['is_manglik'] as bool?,
       horoscopeUrl: json['horoscope_url'] as String?,
       kujaDosham: json['kuja_dosham'] as String?,
+      sampradayam: json['sampradayam'] as String?,
+      kuladevata: json['kuladevata'] as String?,
+      sandhyavandanam: json['sandhyavandanam'] as String?,
+      dailyPooja: json['daily_pooja'] as String?,
+      slokaChanting: json['sloka_chanting'] as String?,
+      templeVisits: json['temple_visits'] as String?,
+      festivalParticipation: json['festival_participation'] as String?,
       highestEducationId: json['highest_education_id'] as int?,
       college: json['college'] as String?,
       occupationId: json['occupation_id'] as int?,
       company: json['company'] as String?,
       annualIncomeId: json['annual_income_id'] as int?,
       workLocation: json['work_location'] as String?,
+      workType: json['work_type'] as String?,
+      careerPreference: json['career_preference'] as String?,
       fatherName: json['father_name'] as String?,
       fatherOccupation: json['father_occupation'] as String?,
       motherName: json['mother_name'] as String?,
@@ -165,17 +225,19 @@ class Profile {
       countryId: json['country_id'] as int?,
       state: json['state'] as String?,
       city: json['city'] as String?,
+      familyValues: json['family_values'] as String?,
+      familyDescription: json['family_description'] as String?,
       foodPreferenceId: json['food_preference_id'] as int?,
       smokingId: json['smoking_id'] as int?,
       drinkingId: json['drinking_id'] as int?,
+      fitnessHabits: json['fitness_habits'] as String?,
+      personalityType: json['personality_type'] as String?,
+      spiritualLevel: json['spiritual_level'] as String?,
+      culturalInterests: (json['cultural_interests'] as List<dynamic>?)?.map((e) => e as String).toList(),
       aboutMe: json['about_me'] as String?,
-      hobbies: json['hobbies'] != null
-          ? List<String>.from(json['hobbies'])
-          : null,
+      hobbies: (json['hobbies'] as List<dynamic>?)?.map((e) => e as String).toList(),
       profilePhotoUrl: json['profile_photo_url'] as String?,
-      additionalPhotoUrls: json['additional_photo_urls'] != null
-          ? List<String>.from(json['additional_photo_urls'])
-          : null,
+      additionalPhotoUrls: (json['additional_photo_urls'] as List<dynamic>?)?.map((e) => e as String).toList(),
       hideMobile: json['hide_mobile'] as bool?,
       hideEmail: json['hide_email'] as bool?,
       showHoroscope: json['show_horoscope'] as bool?,
@@ -187,6 +249,12 @@ class Profile {
       isVerified: json['is_verified'] as bool? ?? false,
       createdAt: json['created_at'] as String? ?? '',
       updatedAt: json['updated_at'] as String? ?? '',
+      lastActiveAt: json['last_active_at'] as String?,
+      accountType: json['account_type'] as String? ?? 'candidate',
+      allowGuardianProxyChat: json['allow_guardian_proxy_chat'] as bool? ?? true,
+      isHidden: json['is_hidden'] as bool? ?? false,
+      isSuspended: json['is_suspended'] as bool? ?? false,
+      suspensionReason: json['suspension_reason'] as String?,
     );
   }
 
@@ -207,14 +275,26 @@ class Profile {
       'nakshatra_id': nakshatraId,
       'rashi_id': rashiId,
       'pada_id': padaId,
+      'time_of_birth': timeOfBirth,
+      'place_of_birth': placeOfBirth,
+      'is_manglik': isManglik,
       'horoscope_url': horoscopeUrl,
       'kuja_dosham': kujaDosham,
+      'sampradayam': sampradayam,
+      'kuladevata': kuladevata,
+      'sandhyavandanam': sandhyavandanam,
+      'daily_pooja': dailyPooja,
+      'sloka_chanting': slokaChanting,
+      'temple_visits': templeVisits,
+      'festival_participation': festivalParticipation,
       'highest_education_id': highestEducationId,
       'college': college,
       'occupation_id': occupationId,
       'company': company,
       'annual_income_id': annualIncomeId,
       'work_location': workLocation,
+      'work_type': workType,
+      'career_preference': careerPreference,
       'father_name': fatherName,
       'father_occupation': fatherOccupation,
       'mother_name': motherName,
@@ -226,9 +306,15 @@ class Profile {
       'country_id': countryId,
       'state': state,
       'city': city,
+      'family_values': familyValues,
+      'family_description': familyDescription,
       'food_preference_id': foodPreferenceId,
       'smoking_id': smokingId,
       'drinking_id': drinkingId,
+      'fitness_habits': fitnessHabits,
+      'personality_type': personalityType,
+      'spiritual_level': spiritualLevel,
+      'cultural_interests': culturalInterests,
       'about_me': aboutMe,
       'hobbies': hobbies,
       'profile_photo_url': profilePhotoUrl,
@@ -241,8 +327,15 @@ class Profile {
       'welcome_email_sent': welcomeEmailSent,
       'created_for': createdFor,
       'is_verified': isVerified,
+      'last_active_at': lastActiveAt,
+      'account_type': accountType,
+      'is_suspended': isSuspended,
+      'suspension_reason': suspensionReason,
     };
   }
+
+  bool get isGuardian => accountType == 'guardian';
+  bool get isCandidate => accountType == 'candidate';
 
   int get completionScore {
     final requiredFields = [
@@ -275,15 +368,26 @@ class Profile {
     }
     return ((filled / requiredFields.length) * 100).toInt();
   }
-}
 
-class LookupOption {
-  final int id;
-  final String label;
+  int? get age {
+    if (dateOfBirth == null || dateOfBirth!.isEmpty) return null;
+    final dob = DateTime.tryParse(dateOfBirth!);
+    if (dob == null) return null;
+    final now = DateTime.now();
+    int a = now.year - dob.year;
+    if (now.month < dob.month ||
+        (now.month == dob.month && now.day < dob.day)) {
+      a--;
+    }
+    return a > 0 ? a : null;
+  }
 
-  LookupOption({required this.id, required this.label});
+  int get computedAge => age ?? 0;
 
-  factory LookupOption.fromJson(Map<String, dynamic> json) {
-    return LookupOption(id: json['id'] as int, label: json['label'] as String);
+  bool get isOnline {
+    if (lastActiveAt == null || lastActiveAt!.isEmpty) return false;
+    final dt = DateTime.tryParse(lastActiveAt!);
+    if (dt == null) return false;
+    return DateTime.now().toUtc().difference(dt.toUtc()).inMinutes < 15;
   }
 }
