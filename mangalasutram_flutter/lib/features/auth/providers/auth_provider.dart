@@ -6,6 +6,8 @@ import '../services/auth_service.dart';
 import '../services/supabase_service.dart';
 import '../../subscription/services/subscription_service.dart';
 import '../../notifications/services/fcm_messaging_service.dart';
+import '../../home/services/home_service.dart';
+import '../../messaging/services/e2ee_crypto_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   bool initialized = false;
@@ -39,6 +41,15 @@ class AuthProvider extends ChangeNotifier {
     hasError = false;
     errorMessage = null;
     isProfileComplete = false;
+    try {
+      HomeService.instance.invalidateCache();
+    } catch (_) {}
+    try {
+      SubscriptionService.instance.reset();
+    } catch (_) {}
+    try {
+      getIt<E2eeCryptoService>().clearKeys();
+    } catch (_) {}
     getIt<FcmMessagingService>().handleSignOut().catchError((_) => false);
     notifyListeners();
   }

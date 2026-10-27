@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
-import '../../shared/services/lookup_service.dart';
+import '../widgets/luxury_selection_chip.dart';
+import '../widgets/luxury_text_field.dart';
 
 class Step7PartnerPreferences extends StatefulWidget {
   final Map<String, dynamic> formData;
@@ -13,33 +13,70 @@ class Step7PartnerPreferences extends StatefulWidget {
   });
 
   @override
-  State<Step7PartnerPreferences> createState() =>
-      _Step7PartnerPreferencesState();
+  State<Step7PartnerPreferences> createState() => _Step7PartnerPreferencesState();
 }
 
 class _Step7PartnerPreferencesState extends State<Step7PartnerPreferences> {
   late Map<String, dynamic> _prefs;
+  late TextEditingController _visionController;
+
+  static const List<String> _doshamPreferences = [
+    'No Dosham Only',
+    'Kuja Dosham Acceptable',
+    'Doesn\'t Matter',
+  ];
+
+  static const List<String> _horoscopePreferences = [
+    'Strict (Guna Milan 18+)',
+    'Preferred',
+    'Not Essential',
+  ];
+
+  static const List<String> _maritalStatusPrefs = [
+    'Never Married',
+    'Divorced',
+    'Widowed',
+    'Doesn\'t Matter',
+  ];
+
+  static const List<String> _foodPrefs = [
+    'Pure Vegetarian 🌿',
+    'Vegetarian 🥗',
+    'Doesn\'t Matter',
+  ];
 
   @override
   void initState() {
     super.initState();
-    // Initialize preferences map if not exists
     _prefs = widget.formData['preferences'] != null
         ? Map<String, dynamic>.from(widget.formData['preferences'])
         : {};
 
-    // Ensure defaults for required sliders
-    _prefs['min_age'] = _prefs['min_age'] ?? 18;
-    _prefs['max_age'] = _prefs['max_age'] ?? 40;
-    _prefs['min_height_inches'] = _prefs['min_height_inches'] ?? 60;
+    _prefs['min_age'] = _prefs['min_age'] ?? 21;
+    _prefs['max_age'] = _prefs['max_age'] ?? 32;
+    _prefs['min_height_inches'] = _prefs['min_height_inches'] ?? 58;
     _prefs['max_height_inches'] = _prefs['max_height_inches'] ?? 72;
     _prefs['kuja_dosham_preference'] =
         _prefs['kuja_dosham_preference'] ?? 'Doesn\'t Matter';
+    _prefs['horoscope_matching_required'] =
+        _prefs['horoscope_matching_required'] ?? 'Preferred';
+    _prefs['marital_status_pref'] =
+        _prefs['marital_status_pref'] ?? 'Never Married';
+    _prefs['food_pref'] = _prefs['food_pref'] ?? 'Pure Vegetarian 🌿';
 
-    // Trigger onUpdate initially so layout has it
+    _visionController = TextEditingController(
+      text: _prefs['marriage_vision'] ?? '',
+    );
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.onUpdate('preferences', _prefs);
     });
+  }
+
+  @override
+  void dispose() {
+    _visionController.dispose();
+    super.dispose();
   }
 
   void _updatePref(String key, dynamic value) {
@@ -52,398 +89,355 @@ class _Step7PartnerPreferencesState extends State<Step7PartnerPreferences> {
   String _formatHeight(int inches) {
     final feet = inches ~/ 12;
     final remainingInches = inches % 12;
-    return "$feet'$remainingInches\"";
+    return "$feet'$remainingInches\" (${(inches * 2.54).round()} cm)";
   }
 
-  Widget _buildSectionLabel(String label) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 24, bottom: 8),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: Color(0xFF1C1C1E),
-        ),
+  Widget _buildSectionContainer({
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFEADBCE), width: 1.0),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF6E1732).withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Partner Preferences',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF1C1C1E),
-              letterSpacing: -0.5,
-            ),
+          Row(
+            children: [
+              Icon(icon, size: 20, color: const Color(0xFFC99A4B)),
+              const SizedBox(width: 10),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF6E1732),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
-          const Text(
-            'Set your basic matching preferences. This helps us find the best compatible profiles for you.',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 15,
-              fontWeight: FontWeight.w400,
-              color: Color(0xFF8E8E93),
-            ),
-          ),
-
           const SizedBox(height: 16),
-          const Text(
-            'BASIC PREFERENCES',
-            style: TextStyle(
-              color: Color(0xFF8E8E93),
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1.2,
-            ),
-          ),
-
-          _buildSectionLabel('Age Range'),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '${_prefs['min_age']} Yrs',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              Text(
-                '${_prefs['max_age']} Yrs',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          RangeSlider(
-            values: RangeValues(
-              (_prefs['min_age'] as int).toDouble(),
-              (_prefs['max_age'] as int).toDouble(),
-            ),
-            min: 18,
-            max: 70,
-            divisions: 52,
-            activeColor: const Color(0xFFD32F2F),
-            onChanged: (RangeValues values) {
-              _updatePref('min_age', values.start.toInt());
-              _updatePref('max_age', values.end.toInt());
-            },
-          ),
-
-          _buildSectionLabel('Height Range'),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                _formatHeight(_prefs['min_height_inches'] as int),
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              Text(
-                _formatHeight(_prefs['max_height_inches'] as int),
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          RangeSlider(
-            values: RangeValues(
-              (_prefs['min_height_inches'] as int).toDouble(),
-              (_prefs['max_height_inches'] as int).toDouble(),
-            ),
-            min: 48, // 4'0"
-            max: 84, // 7'0"
-            divisions: 36,
-            activeColor: const Color(0xFFD32F2F),
-            onChanged: (RangeValues values) {
-              _updatePref('min_height_inches', values.start.toInt());
-              _updatePref('max_height_inches', values.end.toInt());
-            },
-          ),
-
-          _buildMultiSelectTile(
-            label: 'Marital Status',
-            keyName: 'preferred_marital_status_ids',
-            tableName: 'marital_statuses',
-          ),
-
-          const SizedBox(height: 24),
-          const Text(
-            'CULTURAL PREFERENCES',
-            style: TextStyle(
-              color: Color(0xFF8E8E93),
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1.2,
-            ),
-          ),
-
-          _buildMultiSelectTile(
-            label: 'Mother Tongue',
-            keyName: 'preferred_mother_tongue_ids',
-            tableName: 'mother_tongues',
-          ),
-
-          _buildMultiSelectTile(
-            label: 'Caste / Community',
-            keyName: 'preferred_caste_ids',
-            tableName: 'castes',
-          ),
-
-          _buildSectionLabel('Kuja Dosham / Manglik'),
-          SizedBox(
-            width: double.infinity,
-            child: CupertinoSlidingSegmentedControl<String>(
-              backgroundColor: const Color(0xFFE5E5EA),
-              thumbColor: Colors.white,
-              groupValue: _prefs['kuja_dosham_preference'],
-              children: const {
-                'Yes': Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Text(
-                    'Yes',
-                    style: TextStyle(fontFamily: 'Inter', fontSize: 14),
-                  ),
-                ),
-                'No': Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Text(
-                    'No',
-                    style: TextStyle(fontFamily: 'Inter', fontSize: 14),
-                  ),
-                ),
-                'Doesn\'t Matter': Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Text(
-                    'Any',
-                    style: TextStyle(fontFamily: 'Inter', fontSize: 14),
-                  ),
-                ),
-              },
-              onValueChanged: (val) {
-                if (val != null) _updatePref('kuja_dosham_preference', val);
-              },
-            ),
-          ),
-
-          const SizedBox(height: 24),
-          const Text(
-            'LIFESTYLE PREFERENCES',
-            style: TextStyle(
-              color: Color(0xFF8E8E93),
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1.2,
-            ),
-          ),
-
-          _buildMultiSelectTile(
-            label: 'Food Preference',
-            keyName: 'preferred_food_ids',
-            tableName: 'food_preferences',
-          ),
-
-          const SizedBox(height: 40),
+          ...children,
         ],
       ),
     );
   }
 
-  Widget _buildMultiSelectTile({
-    required String label,
-    required String keyName,
-    required String tableName,
-  }) {
-    final List<int> selectedIds = List<int>.from(_prefs[keyName] ?? []);
-    final displayValue = selectedIds.isEmpty
-        ? 'Any'
-        : '${selectedIds.length} Selected';
+  @override
+  Widget build(BuildContext context) {
+    final minAge = (_prefs['min_age'] as int).toDouble();
+    final maxAge = (_prefs['max_age'] as int).toDouble();
+    final minHeight = (_prefs['min_height_inches'] as int).toDouble();
+    final maxHeight = (_prefs['max_height_inches'] as int).toDouble();
 
-    return Padding(
-      padding: const EdgeInsets.only(top: 16),
-      child: InkWell(
-        onTap: () =>
-            _openMultiSelectBottomSheet(label, keyName, tableName, selectedIds),
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF2F2F7),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFE5E5EA), width: 1),
+    final selectedDosham = _prefs['kuja_dosham_preference'] as String?;
+    final selectedHoro = _prefs['horoscope_matching_required'] as String?;
+    final selectedMarital = _prefs['marital_status_pref'] as String?;
+    final selectedFood = _prefs['food_pref'] as String?;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Title
+          const Text(
+            'Ideal Partner Preferences',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Playfair Display',
+              fontSize: 26,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF6E1732),
+            ),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          const SizedBox(height: 6),
+          const Text(
+            'Guide our Vedic matching engine to find your ideal life companion',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 14,
+              fontWeight: FontWeight.w400,
+              color: Color(0xFF8B7355),
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Card 1: Age & Height Criteria
+          _buildSectionContainer(
+            title: 'Age & Physical Criteria',
+            icon: Icons.tune_rounded,
             children: [
-              Text(
-                label,
-                style: const TextStyle(fontSize: 16, color: Color(0xFF1C1C1E)),
-              ),
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    displayValue,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      color: Color(0xFF8E8E93),
+                  const Text(
+                    'Preferred Age Range',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF3E2723),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  const Icon(
-                    Icons.chevron_right,
-                    color: Color(0xFFC7C7CC),
-                    size: 20,
+                  Text(
+                    '${minAge.toInt()} – ${maxAge.toInt()} Years',
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF6E1732),
+                    ),
                   ),
                 ],
               ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openMultiSelectBottomSheet(
-    String title,
-    String keyName,
-    String tableName,
-    List<int> initialSelected,
-  ) async {
-    final lookupOptions = await LookupService().fetchTable(tableName);
-    final options = lookupOptions
-        .map((o) => {'id': o.id, 'label': o.label})
-        .toList();
-
-    if (!mounted) return;
-
-    final result = await showModalBottomSheet<List<int>>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _MultiSelectSheet(
-        title: title,
-        options: options,
-        initialSelected: initialSelected,
-      ),
-    );
-
-    if (result != null) {
-      _updatePref(keyName, result);
-    }
-  }
-}
-
-class _MultiSelectSheet extends StatefulWidget {
-  final String title;
-  final List<Map<String, dynamic>> options;
-  final List<int> initialSelected;
-
-  const _MultiSelectSheet({
-    required this.title,
-    required this.options,
-    required this.initialSelected,
-  });
-
-  @override
-  State<_MultiSelectSheet> createState() => _MultiSelectSheetState();
-}
-
-class _MultiSelectSheetState extends State<_MultiSelectSheet> {
-  late Set<int> _selected;
-
-  @override
-  void initState() {
-    super.initState();
-    _selected = Set<int>.from(widget.initialSelected);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.7,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(color: Color(0xFF8E8E93), fontSize: 16),
-                  ),
+              const SizedBox(height: 8),
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  activeTrackColor: const Color(0xFF6E1732),
+                  inactiveTrackColor: const Color(0xFFEADBCE),
+                  thumbColor: const Color(0xFFC99A4B),
+                  overlayColor: const Color(0xFFC99A4B).withValues(alpha: 0.2),
+                  trackHeight: 4,
                 ),
-                Text(
-                  widget.title,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1C1C1E),
-                  ),
+                child: RangeSlider(
+                  values: RangeValues(minAge, maxAge),
+                  min: 18,
+                  max: 60,
+                  divisions: 42,
+                  onChanged: (values) {
+                    _updatePref('min_age', values.start.toInt());
+                    _updatePref('max_age', values.end.toInt());
+                  },
                 ),
-                TextButton(
-                  onPressed: () => Navigator.pop(context, _selected.toList()),
-                  child: const Text(
-                    'Done',
+              ),
+
+              const SizedBox(height: 20),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Preferred Height Range',
                     style: TextStyle(
-                      color: Color(0xFFD32F2F),
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF3E2723),
                     ),
                   ),
+                  Text(
+                    '${_formatHeight(minHeight.toInt())} – ${_formatHeight(maxHeight.toInt())}',
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF6E1732),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  activeTrackColor: const Color(0xFF6E1732),
+                  inactiveTrackColor: const Color(0xFFEADBCE),
+                  thumbColor: const Color(0xFFC99A4B),
+                  overlayColor: const Color(0xFFC99A4B).withValues(alpha: 0.2),
+                  trackHeight: 4,
                 ),
-              ],
-            ),
-          ),
-          const Divider(height: 1, color: Color(0xFFE5E5EA)),
-          Expanded(
-            child: ListView.builder(
-              itemCount: widget.options.length,
-              itemBuilder: (context, index) {
-                final option = widget.options[index];
-                final id = option['id'] as int;
-                // Try to find the label key (it's the only other key besides 'id')
-                final labelKey = option.keys.firstWhere(
-                  (k) => k != 'id',
-                  orElse: () => '',
-                );
-                final label = option[labelKey]?.toString() ?? 'Unknown';
-
-                final isSelected = _selected.contains(id);
-
-                return ListTile(
-                  title: Text(label, style: const TextStyle(fontSize: 16)),
-                  trailing: isSelected
-                      ? const Icon(Icons.check_circle, color: Color(0xFFD32F2F))
-                      : const Icon(
-                          Icons.radio_button_unchecked,
-                          color: Color(0xFFC7C7CC),
-                        ),
-                  onTap: () {
-                    setState(() {
-                      if (isSelected) {
-                        _selected.remove(id);
-                      } else {
-                        _selected.add(id);
-                      }
-                    });
+                child: RangeSlider(
+                  values: RangeValues(minHeight, maxHeight),
+                  min: 48,
+                  max: 84,
+                  divisions: 36,
+                  onChanged: (values) {
+                    _updatePref('min_height_inches', values.start.toInt());
+                    _updatePref('max_height_inches', values.end.toInt());
                   },
-                );
-              },
-            ),
+                ),
+              ),
+            ],
           ),
+
+          const SizedBox(height: 20),
+
+          // Card 2: Astrological Alignment
+          _buildSectionContainer(
+            title: 'Astrological Preferences',
+            icon: Icons.auto_awesome_rounded,
+            children: [
+              const Text(
+                'Kuja Dosham / Manglik Preference',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF3E2723),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 10,
+                children: _doshamPreferences.map((opt) {
+                  final isSelected = selectedDosham == opt;
+                  return LuxurySelectionChip(
+                    label: opt,
+                    isSelected: isSelected,
+                    onSelected: () => _updatePref('kuja_dosham_preference', opt),
+                  );
+                }).toList(),
+              ),
+
+              const SizedBox(height: 20),
+
+              const Text(
+                'Horoscope / Guna Milan Importance',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF3E2723),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 10,
+                children: _horoscopePreferences.map((opt) {
+                  final isSelected = selectedHoro == opt;
+                  return LuxurySelectionChip(
+                    label: opt,
+                    isSelected: isSelected,
+                    onSelected: () => _updatePref('horoscope_matching_required', opt),
+                  );
+                }).toList(),
+              ),
+
+              const SizedBox(height: 18),
+
+              // Sagotra Exemption Badge
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFBF8F1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFC99A4B).withValues(alpha: 0.4)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.verified_rounded, size: 18, color: Color(0xFFC99A4B)),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Sagotra Exclusion: Profiles sharing the same Gothram are automatically filtered out per Vedic traditions.',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          color: Color(0xFF6E1732),
+                          fontWeight: FontWeight.w500,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // Card 3: Marital & Lifestyle Preferences
+          _buildSectionContainer(
+            title: 'Marital & Lifestyle Preferences',
+            icon: Icons.favorite_rounded,
+            children: [
+              const Text(
+                'Marital Status',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF3E2723),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 10,
+                children: _maritalStatusPrefs.map((opt) {
+                  final isSelected = selectedMarital == opt;
+                  return LuxurySelectionChip(
+                    label: opt,
+                    isSelected: isSelected,
+                    onSelected: () => _updatePref('marital_status_pref', opt),
+                  );
+                }).toList(),
+              ),
+
+              const SizedBox(height: 20),
+
+              const Text(
+                'Dietary Expectation',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF3E2723),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 10,
+                children: _foodPrefs.map((opt) {
+                  final isSelected = selectedFood == opt;
+                  return LuxurySelectionChip(
+                    label: opt,
+                    isSelected: isSelected,
+                    onSelected: () => _updatePref('food_pref', opt),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // Card 4: Marriage Vision
+          _buildSectionContainer(
+            title: 'Marriage Vision',
+            icon: Icons.spa_rounded,
+            children: [
+              LuxuryTextField(
+                label: 'Expectations & Vision (Optional)',
+                hintText: 'What qualities and life goals are you seeking in your life partner?',
+                controller: _visionController,
+                maxLines: 3,
+                onChanged: (val) => _updatePref('marriage_vision', val),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 32),
         ],
       ),
     );

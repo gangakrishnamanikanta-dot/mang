@@ -21,8 +21,9 @@ const allowedOrigins = [
 function getCorsHeaders(req: Request) {
   const origin = req.headers.get("origin");
   return {
-    "Access-Control-Allow-Origin": (origin && allowedOrigins.includes(origin)) ? origin : "",
+    "Access-Control-Allow-Origin": (origin && allowedOrigins.includes(origin)) ? origin : "*",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
   };
 }
 
@@ -101,17 +102,31 @@ serve(async (req) => {
       );
     }
 
-    // Step 2: Find the user by email
-    const { data: usersData, error: userListError } = await supabaseAdmin.auth.admin.listUsers();
-    if (userListError) {
-      return new Response(
-        JSON.stringify({ error: "Failed to find user." }),
-        { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-      );
+    // Step 2: Find the user by email (O(1) indexed lookup with RPC fallback)
+    let userId: string | null = null;
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .ilike("email", email.trim())
+      .maybeSingle();
+
+    if (profile?.id) {
+      userId = profile.id;
+    } else {
+      // Direct service_role lookup in auth.users by email without scanning or pagination limits
+      try {
+        const { data: rpcUserId } = await supabaseAdmin.rpc("get_auth_user_id_by_email", {
+          p_email: email.trim(),
+        });
+        if (rpcUserId) {
+          userId = rpcUserId;
+        }
+      } catch (rpcErr) {
+        console.error("RPC user lookup error:", rpcErr);
+      }
     }
 
-    const user = usersData.users.find(u => u.email === email);
-    if (!user) {
+    if (!userId) {
       return new Response(
         JSON.stringify({ error: "No account found with this email." }),
         { status: 404, headers: { "Content-Type": "application/json", ...corsHeaders } }
@@ -120,7 +135,7 @@ serve(async (req) => {
 
     // Step 3: Update password using Admin API
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
-      user.id,
+      userId,
       { password: new_password }
     );
 

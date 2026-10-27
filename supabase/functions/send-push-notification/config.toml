@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "name": "send-push-notification",
+  "entrypoint": "index.ts",
+  "verify_jwt": false
+}

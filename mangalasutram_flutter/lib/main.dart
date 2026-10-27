@@ -15,8 +15,16 @@ import 'features/auth/screens/reset_password_screen.dart';
 import 'features/onboarding/screens/profile_builder_layout.dart';
 import 'features/profile/screens/edit_profile_screen.dart';
 import 'features/profile/screens/partner_preferences_screen.dart';
-import 'features/subscription/screens/settings_screen.dart';
+import 'features/profile/screens/settings_screen.dart';
+import 'features/subscription/screens/premium_tab.dart';
 import 'features/home/screens/home_screen.dart';
+import 'features/messaging/services/outbox_service.dart';
+import 'features/notifications/providers/notification_provider.dart';
+import 'features/notifications/screens/notifications_screen.dart';
+import 'features/notifications/services/fcm_messaging_service.dart';
+import 'features/notifications/services/notification_router.dart';
+
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,6 +38,33 @@ Future<void> main() async {
   // 2. Wire up dependency injection BEFORE any widget touches a service
   configureDependencies();
 
+  // 3. Initialize offline outbox connectivity monitor
+  OutboxService.instance.initialize();
+
+  // 4. Initialize FCM messaging service & tap handling
+  final fcmService = getIt<FcmMessagingService>();
+  await fcmService.initialize();
+  fcmService.setNotificationTapHandler((data) {
+    final context = rootNavigatorKey.currentContext;
+    if (context != null) {
+      NotificationRouter.navigateFromPayload(context, data);
+    }
+  });
+
+  // Request notification permissions in background
+  fcmService.requestPermission().catchError((e) {
+    debugPrint('[main] Notification permission request error: $e');
+    return false;
+  });
+
+  // Check if launched by tapping a push notification from terminated state
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    final initialData = await fcmService.checkTerminatedLaunch();
+    if (initialData != null && rootNavigatorKey.currentContext != null) {
+      NotificationRouter.navigateFromPayload(rootNavigatorKey.currentContext!, initialData);
+    }
+  });
+
   runApp(const MangalasutramApp());
 }
 
@@ -38,12 +73,15 @@ class MangalasutramApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      // AuthProvider now gets its dependencies from getIt — no concrete class in sight.
-      create: (_) => AuthProvider(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => NotificationProvider()),
+      ],
       child: Consumer<AuthProvider>(
         builder: (context, authProvider, child) {
           return MaterialApp(
+            navigatorKey: rootNavigatorKey,
             title: 'Mangalasutram',
             debugShowCheckedModeBanner: false,
             navigatorObservers: [routeObserver],
@@ -191,7 +229,9 @@ class MangalasutramApp extends StatelessWidget {
               '/partner-preferences': (context) =>
                   const EditPartnerPreferencesScreen(),
               '/settings': (context) => const SettingsScreen(),
+              '/plans': (context) => const PremiumTab(),
               '/home': (context) => const HomeScreen(),
+              '/notifications': (context) => const NotificationCenterScreen(),
             },
           );
         },

@@ -73,3 +73,15 @@ class ServerException extends AppException {
     super.code = 'server_error',
   ]);
 }
+
+class QuotaExceededException extends AppException {
+  final String tier;
+  final int limit;
+
+  const QuotaExceededException({
+    required this.tier,
+    required this.limit,
+    String message = 'Daily interest limit reached.',
+  }) : super(message, 'quota_exceeded');
+}
+

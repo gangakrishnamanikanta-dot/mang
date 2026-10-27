@@ -18,6 +18,9 @@ class PartnerPreference {
   final List<int>? preferredMotherTongueIds;
   final List<int>? preferredCasteIds;
   final List<int>? preferredFoodIds;
+  final String? horoscopeMatchingRequired;
+  final List<int>? preferredCountryIds;
+  final String? marriageVision;
 
   PartnerPreference({
     this.id,
@@ -39,6 +42,9 @@ class PartnerPreference {
     this.preferredMotherTongueIds,
     this.preferredCasteIds,
     this.preferredFoodIds,
+    this.horoscopeMatchingRequired,
+    this.preferredCountryIds,
+    this.marriageVision,
   });
 
   factory PartnerPreference.fromJson(Map<String, dynamic> json) {
@@ -87,6 +93,11 @@ class PartnerPreference {
       preferredFoodIds: (json['preferred_food_ids'] as List<dynamic>?)
           ?.map((e) => e as int)
           .toList(),
+      horoscopeMatchingRequired: json['horoscope_matching_required'] as String?,
+      preferredCountryIds: (json['preferred_country_ids'] as List<dynamic>?)
+          ?.map((e) => e as int)
+          .toList(),
+      marriageVision: json['marriage_vision'] as String?,
     );
   }
 
@@ -98,25 +109,21 @@ class PartnerPreference {
       'min_height_inches': minHeightInches,
       'max_height_inches': maxHeightInches,
       'kuja_dosham_preference': kujaDoshamPreference,
-      'exclude_same_gotra': excludeSameGotra ?? true,
-      if (preferredEducationIds != null)
-        'preferred_education_ids': preferredEducationIds,
-      if (preferredOccupationIds != null)
-        'preferred_occupation_ids': preferredOccupationIds,
-      if (preferredFamilyTypeIds != null)
-        'preferred_family_type_ids': preferredFamilyTypeIds,
-      if (preferredSmokingIds != null)
-        'preferred_smoking_ids': preferredSmokingIds,
-      if (preferredDrinkingIds != null)
-        'preferred_drinking_ids': preferredDrinkingIds,
-      'location_preference': locationPreference ?? 'any',
+      'exclude_same_gotra': excludeSameGotra,
+      'preferred_education_ids': preferredEducationIds,
+      'preferred_occupation_ids': preferredOccupationIds,
+      'preferred_family_type_ids': preferredFamilyTypeIds,
+      'preferred_smoking_ids': preferredSmokingIds,
+      'preferred_drinking_ids': preferredDrinkingIds,
+      'location_preference': locationPreference,
       'preferred_annual_income_id': preferredAnnualIncomeId,
-      if (preferredMaritalStatusIds != null)
-        'preferred_marital_status_ids': preferredMaritalStatusIds,
-      if (preferredMotherTongueIds != null)
-        'preferred_mother_tongue_ids': preferredMotherTongueIds,
-      if (preferredCasteIds != null) 'preferred_caste_ids': preferredCasteIds,
-      if (preferredFoodIds != null) 'preferred_food_ids': preferredFoodIds,
+      'preferred_marital_status_ids': preferredMaritalStatusIds,
+      'preferred_mother_tongue_ids': preferredMotherTongueIds,
+      'preferred_caste_ids': preferredCasteIds,
+      'preferred_food_ids': preferredFoodIds,
+      'horoscope_matching_required': horoscopeMatchingRequired,
+      'preferred_country_ids': preferredCountryIds,
+      'marriage_vision': marriageVision,
     };
   }
 }

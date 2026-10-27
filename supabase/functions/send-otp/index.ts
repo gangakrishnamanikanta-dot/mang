@@ -60,7 +60,59 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Rate limiting via otp_rate_limits table
+    // 1. Anti-Bot: Block disposable/throwaway email domains
+    const DISPOSABLE_DOMAINS = new Set([
+      "mailinator.com", "guerrillamail.com", "10minutemail.com", "tempmail.com",
+      "trashmail.com", "yopmail.com", "dispostable.com", "sharklasers.com",
+      "getnada.com", "burnermail.io", "fakemailgenerator.com", "temp-mail.org",
+      "disposablemail.com", "throwawaymail.com", "generator.email"
+    ]);
+    const emailDomain = email.split("@")[1]?.toLowerCase()?.trim();
+    if (emailDomain && DISPOSABLE_DOMAINS.has(emailDomain)) {
+      return new Response(
+        JSON.stringify({ error: "Temporary and disposable email addresses are not permitted." }),
+        { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+
+    // 2. Global Platform Circuit Breaker (protects against distributed proxy bot swarms)
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { count: globalRecentOtpCount } = await supabaseClient
+      .from("otp_rate_limits")
+      .select("*", { count: "exact", head: true })
+      .gte("last_attempt_at", fiveMinAgo);
+
+    if (globalRecentOtpCount && globalRecentOtpCount > 300) {
+      console.warn(`[CIRCUIT BREAKER]: Global OTP volume spike detected: ${globalRecentOtpCount} requests in 5m.`);
+      return new Response(
+        JSON.stringify({ error: "System is experiencing unusually high traffic. Please try again shortly." }),
+        { status: 429, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+
+    // 3. Anti-Enumeration: For password reset, if account does not exist, return uniform response with calibrated timing
+    if (purpose === "reset_password") {
+      const { data: profile } = await supabaseClient
+        .from("profiles")
+        .select("id")
+        .eq("email", email)
+        .maybeSingle();
+
+      if (!profile) {
+        // Calibrated timing delay to match normal hashing + db write execution time
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: "If this email is registered, a verification code has been dispatched.",
+            expires_in_minutes: 15,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+        );
+      }
+    }
+
+    // 4. Rate limiting via otp_rate_limits table
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
 
     // Check per-email limits (max 3 OTPs in 10 minutes)

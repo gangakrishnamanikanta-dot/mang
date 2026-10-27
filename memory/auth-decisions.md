@@ -4,7 +4,6 @@ description: OTP-only auth, no magic links, email + mobile on same signup form, 
 metadata:
   type: project
 ---
-
 ## Authentication Decisions
 
 ### Auth Method

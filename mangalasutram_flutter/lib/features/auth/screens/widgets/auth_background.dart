@@ -32,7 +32,7 @@ class AuthCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Padding(padding: const EdgeInsets.all(24), child: child),
+      child: Padding(padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20), child: child),
     );
   }
 }
@@ -45,6 +45,7 @@ class AuthTextField extends StatelessWidget {
   final bool obscureText;
   final TextInputType? keyboardType;
   final Widget? suffixIcon;
+  final TextCapitalization textCapitalization;
 
   const AuthTextField({
     super.key,
@@ -54,6 +55,7 @@ class AuthTextField extends StatelessWidget {
     this.obscureText = false,
     this.keyboardType,
     this.suffixIcon,
+    this.textCapitalization = TextCapitalization.none,
   });
 
   @override
@@ -67,16 +69,17 @@ class AuthTextField extends StatelessWidget {
         controller: controller,
         obscureText: obscureText,
         keyboardType: keyboardType,
+        textCapitalization: textCapitalization,
         style: const TextStyle(color: Color(0xFF3E2723)),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: TextStyle(color: const Color(0xFFB0A090)),
-          prefixIcon: Icon(icon, color: AppColors.gold, size: 22),
+          hintStyle: TextStyle(color: const Color(0xFFB0A090), fontSize: 14),
+          prefixIcon: Icon(icon, color: AppColors.gold, size: 20),
           suffixIcon: suffixIcon,
           border: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 16,
+            horizontal: 14,
+            vertical: 12,
           ),
         ),
       ),

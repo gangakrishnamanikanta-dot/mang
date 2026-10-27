@@ -528,20 +528,28 @@ BEGIN
 END;
 $$;
 
-ALTER POLICY "Authenticated users can read chat files" 
-ON storage.objects 
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('family-voice-notes', 'family-voice-notes', false)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "Authenticated users can read chat files" ON storage.objects;
+CREATE POLICY "Authenticated users can read chat files" 
+ON storage.objects FOR SELECT TO authenticated
 USING (bucket_id = 'chat-files' AND public.can_access_chat_storage(name, auth.uid()));
 
-ALTER POLICY "Authenticated users can upload chat files" 
-ON storage.objects 
+DROP POLICY IF EXISTS "Authenticated users can upload chat files" ON storage.objects;
+CREATE POLICY "Authenticated users can upload chat files" 
+ON storage.objects FOR INSERT TO authenticated
 WITH CHECK (bucket_id = 'chat-files' AND public.can_upload_chat_storage(name, auth.uid()));
 
-ALTER POLICY "Members can access family voice notes" 
-ON storage.objects 
+DROP POLICY IF EXISTS "Members can access family voice notes" ON storage.objects;
+CREATE POLICY "Members can access family voice notes" 
+ON storage.objects FOR SELECT TO authenticated
 USING (bucket_id = 'family-voice-notes' AND public.can_access_family_voice_storage(name, auth.uid()));
 
-ALTER POLICY "Members can upload family voice notes" 
-ON storage.objects 
+DROP POLICY IF EXISTS "Members can upload family voice notes" ON storage.objects;
+CREATE POLICY "Members can upload family voice notes" 
+ON storage.objects FOR INSERT TO authenticated
 WITH CHECK (bucket_id = 'family-voice-notes' AND public.can_access_family_voice_storage(name, auth.uid()));
 
 -- -----------------------------------------------------------------------------

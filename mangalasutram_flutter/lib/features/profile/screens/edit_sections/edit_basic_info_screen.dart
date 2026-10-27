@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../../../core/di.dart';
+import '../../../../models/lookup_option.dart';
 import '../../../../models/profile.dart';
 import '../../../../shared/widgets/apple_settings_form.dart';
 import '../../../../shared/widgets/bottom_sheet_selector.dart';
+import '../../../../shared/widgets/luxury_date_picker.dart';
 import '../../services/profile_service.dart';
 import '../../../shared/services/lookup_service.dart';
 import '../../../../core/exceptions/app_exception.dart';
@@ -67,6 +69,19 @@ class _EditBasicInfoScreenState extends State<EditBasicInfoScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _fullName.dispose();
+    _dob.dispose();
+    _height.dispose();
+    _aboutMe.dispose();
+    _maritalStatus.dispose();
+    _motherTongue.dispose();
+    _createdFor.dispose();
+    _gender.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final results = await Future.wait([
       _profileService.getProfile(),
@@ -82,7 +97,7 @@ class _EditBasicInfoScreenState extends State<EditBasicInfoScreen> {
       return;
     }
     _original = profile;
-    _fullName.text = profile.fullName ?? '';
+    _fullName.text = profile.fullName;
     _dob.text = profile.dateOfBirth?.split('T')[0] ?? '';
     _selectedHeightId = profile.heightInches;
     if (_selectedHeightId != null) {
@@ -124,33 +139,23 @@ class _EditBasicInfoScreenState extends State<EditBasicInfoScreen> {
     }
   }
 
-  void _showSelector(
-    String type,
+  Future<void> _showSelector(
+    String title,
+    String tableKey,
     TextEditingController c,
+    LookupOption? currentOpt,
     void Function(LookupOption) onSelect,
   ) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) =>
-          const Center(child: CircularProgressIndicator(color: _burgundy)),
-    );
+    FocusScope.of(context).unfocus();
+    final options = _lookupData?[tableKey] ?? [];
 
-    String table = type;
-    if (type == 'marital_status') table = 'marital_statuses';
-    if (type == 'mother_tongue') table = 'mother_tongues';
-
-    final options = await _lookupService.fetchTable(table);
-    if (!mounted) return;
-    Navigator.pop(context);
-
-    if (!mounted) return;
     final res = await BottomSheetSelector.show(
       context: context,
-      title: type.toUpperCase().replaceAll('_', ' '),
+      title: title,
       options: options,
+      selectedOption: currentOpt,
     );
-    if (res != null) {
+    if (res != null && mounted) {
       setState(() {
         c.text = res.label;
         onSelect(res);
@@ -158,7 +163,31 @@ class _EditBasicInfoScreenState extends State<EditBasicInfoScreen> {
     }
   }
 
+  Future<void> _pickDateOfBirth() async {
+    FocusScope.of(context).unfocus();
+    DateTime? initialDate;
+    if (_dob.text.trim().isNotEmpty) {
+      try {
+        initialDate = DateTime.parse(_dob.text.trim());
+      } catch (_) {}
+    }
+
+    final picked = await LuxuryDatePicker.show(
+      context: context,
+      initialDate: initialDate,
+      title: 'Select Date of Birth',
+    );
+
+    if (picked != null && mounted) {
+      setState(() {
+        _dob.text =
+            '${picked.year.toString().padLeft(4, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+      });
+    }
+  }
+
   Future<void> _save() async {
+    FocusScope.of(context).unfocus();
     if (_original == null) return;
     setState(() => _saving = true);
 
@@ -189,18 +218,19 @@ class _EditBasicInfoScreenState extends State<EditBasicInfoScreen> {
     }
 
     final patch = <String, dynamic>{};
-    if (_fullName.text != (_original!.fullName)) {
-      patch['full_name'] = _fullName.text;
+    if (_fullName.text.trim() != (_original!.fullName)) {
+      patch['full_name'] = _fullName.text.trim();
     }
-    if (_dob.text != (_original!.dateOfBirth?.split('T')[0] ?? '')) {
-      patch['date_of_birth'] = _dob.text;
+    if (_dob.text.trim() != (_original!.dateOfBirth?.split('T')[0] ?? '')) {
+      patch['date_of_birth'] = _dob.text.trim();
     }
     if (_selectedHeightId != null &&
         _selectedHeightId != _original!.heightInches) {
       patch['height_inches'] = _selectedHeightId;
     }
-    if (_aboutMe.text != (_original!.aboutMe ?? '')) {
-      patch['about_me'] = _aboutMe.text;
+    final trimmedAbout = _aboutMe.text.trim();
+    if (trimmedAbout != (_original!.aboutMe ?? '')) {
+      patch['about_me'] = trimmedAbout.isNotEmpty ? trimmedAbout : null;
     }
 
     if (_maritalStatusOpt?.id != null &&
@@ -211,11 +241,11 @@ class _EditBasicInfoScreenState extends State<EditBasicInfoScreen> {
         _motherTongueOpt!.id != _original!.motherTongueId) {
       patch['mother_tongue_id'] = _motherTongueOpt!.id;
     }
-    if (_createdFor.text != (_original!.createdFor ?? '')) {
-      patch['created_for'] = _createdFor.text;
+    if (_createdFor.text.trim() != (_original!.createdFor ?? '')) {
+      patch['created_for'] = _createdFor.text.trim();
     }
-    if (_gender.text != (_original!.gender ?? '')) {
-      patch['gender'] = _gender.text;
+    if (_gender.text.trim() != (_original!.gender ?? '')) {
+      patch['gender'] = _gender.text.trim();
     }
 
     if (patch.isEmpty) {
@@ -226,7 +256,16 @@ class _EditBasicInfoScreenState extends State<EditBasicInfoScreen> {
 
     try {
       await _profileService.saveProfile(patch);
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Basic details saved successfully! ✨'),
+            backgroundColor: Color(0xFF2E7D32),
+            duration: Duration(seconds: 2),
+          ),
+        );
+        Navigator.pop(context, true);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -247,11 +286,15 @@ class _EditBasicInfoScreenState extends State<EditBasicInfoScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFFBF8F1), // Apple iOS Settings background
+      backgroundColor: const Color(0xFFFBF8F1),
       appBar: AppBar(
         title: const Text(
-          'Basic Info',
-          style: TextStyle(color: Colors.black, fontSize: 18),
+          'Basic Details',
+          style: TextStyle(
+            color: Colors.black,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         backgroundColor: const Color(0xFFFBF8F1),
         elevation: 0,
@@ -300,7 +343,10 @@ class _EditBasicInfoScreenState extends State<EditBasicInfoScreen> {
                       AppleFormRow(
                         controller: _dob,
                         label: 'Date of Birth',
-                        hintText: 'YYYY-MM-DD',
+                        hintText: 'Select Date of Birth',
+                        isReadOnly: true,
+                        showChevron: true,
+                        onTap: _pickDateOfBirth,
                       ),
                       AppleFormRow(
                         controller: _height,
@@ -309,12 +355,20 @@ class _EditBasicInfoScreenState extends State<EditBasicInfoScreen> {
                         isReadOnly: true,
                         showChevron: true,
                         onTap: () async {
+                          FocusScope.of(context).unfocus();
+                          final selectedOpt = _selectedHeightId != null
+                              ? LookupOption(
+                                  id: _selectedHeightId!,
+                                  label: _height.text,
+                                )
+                              : null;
                           final result = await BottomSheetSelector.show(
                             context: context,
                             title: 'Select Height',
                             options: _heightOptions,
+                            selectedOption: selectedOpt,
                           );
-                          if (result != null) {
+                          if (result != null && mounted) {
                             setState(() {
                               _selectedHeightId = result.id;
                               _height.text = result.label;
@@ -329,8 +383,10 @@ class _EditBasicInfoScreenState extends State<EditBasicInfoScreen> {
                         isReadOnly: true,
                         showChevron: true,
                         onTap: () => _showSelector(
-                          'marital_status',
+                          'Marital Status',
+                          'marital_statuses',
                           _maritalStatus,
+                          _maritalStatusOpt,
                           (o) => _maritalStatusOpt = o,
                         ),
                       ),
@@ -341,8 +397,10 @@ class _EditBasicInfoScreenState extends State<EditBasicInfoScreen> {
                         isReadOnly: true,
                         showChevron: true,
                         onTap: () => _showSelector(
-                          'mother_tongue',
+                          'Mother Tongue',
+                          'mother_tongues',
                           _motherTongue,
+                          _motherTongueOpt,
                           (o) => _motherTongueOpt = o,
                         ),
                       ),
@@ -353,12 +411,17 @@ class _EditBasicInfoScreenState extends State<EditBasicInfoScreen> {
                         isReadOnly: true,
                         showChevron: true,
                         onTap: () async {
+                          FocusScope.of(context).unfocus();
+                          final selectedOpt = _createdFor.text.isNotEmpty
+                              ? LookupOption(id: 0, label: _createdFor.text)
+                              : null;
                           final result = await BottomSheetSelector.show(
                             context: context,
                             title: 'Created For',
                             options: _createdForOptions,
+                            selectedOption: selectedOpt,
                           );
-                          if (result != null) {
+                          if (result != null && mounted) {
                             setState(() => _createdFor.text = result.label);
                           }
                         },
@@ -370,12 +433,17 @@ class _EditBasicInfoScreenState extends State<EditBasicInfoScreen> {
                         isReadOnly: true,
                         showChevron: true,
                         onTap: () async {
+                          FocusScope.of(context).unfocus();
+                          final selectedOpt = _gender.text.isNotEmpty
+                              ? LookupOption(id: 0, label: _gender.text)
+                              : null;
                           final result = await BottomSheetSelector.show(
                             context: context,
                             title: 'Gender',
                             options: _genderOptions,
+                            selectedOption: selectedOpt,
                           );
-                          if (result != null) {
+                          if (result != null && mounted) {
                             setState(() => _gender.text = result.label);
                           }
                         },

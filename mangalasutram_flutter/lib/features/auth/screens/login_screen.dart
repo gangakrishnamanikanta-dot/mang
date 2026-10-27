@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -97,15 +98,31 @@ class _LoginScreenState extends State<LoginScreen> {
           _showError(auth.errorMessage!);
         }
       } on AuthException catch (e) {
-        final msg = _friendlyAuthMessage(e.message);
+        final msg = _friendlyAuthMessage(e.message, e.code);
         _showError(msg);
         if (msg.contains('wait') || msg.contains('attempts')) {
           _startRateLimitCountdown(30);
         }
+      } on TimeoutException {
+        _showError('Connection timed out. Please check your internet connection.');
+      } on SocketException {
+        _showError('Cannot connect to server. Please check your internet connection.');
       } on AppException catch (e) {
         _showError(e.message);
-      } catch (_) {
-        _showError('Something went wrong. Please try again.');
+      } catch (e, stack) {
+        debugPrint('[Login Error]: $e\n$stack');
+        final errText = e.toString().toLowerCase();
+        if (errText.contains('socketexception') ||
+            errText.contains('failed host lookup') ||
+            errText.contains('clientexception')) {
+          _showError('Cannot connect to server. Please check your internet connection.');
+        } else if (errText.contains('invalid login credentials') ||
+            errText.contains('invalid_credentials')) {
+          _showError('Incorrect email or password. Please try again.');
+        } else {
+          final clean = e.toString().replaceFirst(RegExp(r'^[A-Za-z0-9_]+Exception:\s*'), '');
+          _showError(clean.isNotEmpty ? clean : 'Authentication failed. Please verify your email and password.');
+        }
       }
     } else {
       final rawPhone = _phoneCtrl.text.trim();
@@ -183,19 +200,31 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  String _friendlyAuthMessage(String raw) {
+  String _friendlyAuthMessage(String raw, [String? code]) {
     final lower = raw.toLowerCase();
-    if (lower.contains('invalid login credentials') || lower.contains('invalid')) {
-      return 'Incorrect email or password';
+    final lowerCode = (code ?? '').toLowerCase();
+
+    if (lowerCode == 'invalid_credentials' ||
+        lower.contains('invalid login credentials') ||
+        lower.contains('invalid credential') ||
+        lower.contains('invalid email or password') ||
+        lower.contains('invalid password') ||
+        lower.contains('invalid')) {
+      return 'Incorrect email or password. Please try again.';
     }
-    if (lower.contains('email not confirmed')) {
-      return 'Please verify your email first';
+    if (lowerCode == 'user_not_found' || lower.contains('user not found')) {
+      return 'No account found with this email. Please register.';
     }
-    if (lower.contains('too many requests') || lower.contains('rate limit')) {
-      return 'Too many attempts. Please wait and try again';
+    if (lowerCode == 'email_not_confirmed' ||
+        lower.contains('email not confirmed') ||
+        lower.contains('not confirmed')) {
+      return 'Please verify your email address before signing in.';
     }
-    if (lower.contains('user not found')) {
-      return 'Incorrect email or password';
+    if (lowerCode.contains('rate_limit') ||
+        lower.contains('too many requests') ||
+        lower.contains('rate limit') ||
+        lower.contains('wait')) {
+      return 'Too many attempts. Please wait 30 seconds before trying again.';
     }
     return raw;
   }

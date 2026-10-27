@@ -79,5 +79,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Mangalasutram requires camera access to allow you to take and upload verified profile photos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Mangalasutram requires access to your photo library to select and upload matrimonial profile photos.</string>
 </dict>
 </plist>

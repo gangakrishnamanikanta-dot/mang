@@ -36,7 +36,7 @@ class AppTypography {
     fontFamily: serifFamily,
     fontSize: 32,
     fontWeight: FontWeight.w700,
-    height: 40,
+    height: 1.25,
     letterSpacing: 0,
   );
 
@@ -44,35 +44,35 @@ class AppTypography {
     fontFamily: serifFamily,
     fontSize: 24,
     fontWeight: FontWeight.w600,
-    height: 32,
+    height: 1.33,
   );
 
   static const TextStyle title = TextStyle(
     fontFamily: fontFamily,
     fontSize: 16,
     fontWeight: FontWeight.w600,
-    height: 24,
+    height: 1.5,
   );
 
   static const TextStyle body = TextStyle(
     fontFamily: fontFamily,
     fontSize: 15,
     fontWeight: FontWeight.w400,
-    height: 22,
+    height: 1.47,
   );
 
   static const TextStyle caption = TextStyle(
     fontFamily: fontFamily,
     fontSize: 14,
     fontWeight: FontWeight.w400,
-    height: 20,
+    height: 1.43,
   );
 
   static const TextStyle small = TextStyle(
     fontFamily: fontFamily,
     fontSize: 12,
     fontWeight: FontWeight.w500,
-    height: 16,
+    height: 1.33,
   );
 }
 

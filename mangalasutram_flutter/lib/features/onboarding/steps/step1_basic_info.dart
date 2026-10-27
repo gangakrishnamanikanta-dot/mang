@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import '../../../shared/widgets/apple_text_field.dart';
 import '../../../shared/widgets/bottom_sheet_selector.dart';
-import '../../../models/profile.dart';
-import '../../profile/services/profile_service.dart';
-import '../../../core/exceptions/app_exception.dart';
+import '../../../shared/widgets/luxury_date_picker.dart';
+import '../../../models/lookup_option.dart';
+import '../widgets/luxury_selection_chip.dart';
+import '../widgets/luxury_gender_card.dart';
+import '../widgets/luxury_text_field.dart';
+import '../widgets/luxury_multi_photo_picker.dart';
 
 class Step1BasicInfo extends StatefulWidget {
   final Map<String, dynamic> formData;
@@ -24,25 +25,25 @@ class Step1BasicInfo extends StatefulWidget {
 
 class _Step1BasicInfoState extends State<Step1BasicInfo> {
   late TextEditingController _nameController;
-  late TextEditingController _dobController;
   late TextEditingController _phoneController;
   late TextEditingController _emailController;
+  late TextEditingController _subCasteController;
 
   final List<LookupOption> _heightOptions = List.generate(48, (index) {
     final inches = 48 + index;
     final ft = inches ~/ 12;
     final ins = inches % 12;
-    return LookupOption(id: inches, label: "$ft'$ins\"");
+    return LookupOption(id: inches, label: "$ft'$ins\" (${(inches * 2.54).round()} cm)");
   });
 
-  final List<LookupOption> _createdForOptions = [
-    LookupOption(id: 1, label: 'Self'),
-    LookupOption(id: 2, label: 'Son'),
-    LookupOption(id: 3, label: 'Daughter'),
-    LookupOption(id: 4, label: 'Brother'),
-    LookupOption(id: 5, label: 'Sister'),
-    LookupOption(id: 6, label: 'Friend'),
-    LookupOption(id: 7, label: 'Relative'),
+  final List<String> _createdForOptions = [
+    'Self',
+    'Son',
+    'Daughter',
+    'Brother',
+    'Sister',
+    'Relative',
+    'Friend',
   ];
 
   @override
@@ -51,597 +52,537 @@ class _Step1BasicInfoState extends State<Step1BasicInfo> {
     _nameController = TextEditingController(
       text: widget.formData['full_name'] ?? '',
     );
-    _dobController = TextEditingController(
-      text: widget.formData['date_of_birth'] ?? '',
-    );
     _phoneController = TextEditingController(
       text: widget.formData['phone'] ?? '',
     );
     _emailController = TextEditingController(
       text: widget.formData['email'] ?? '',
     );
-
-    _dobController.addListener(_onDobChanged);
-  }
-
-  void _onDobChanged() {
-    final raw = _dobController.text.replaceAll('-', '');
-    if (raw.length <= 8) {
-      String formatted = '';
-      for (int i = 0; i < raw.length && i < 8; i++) {
-        if (i == 4 || i == 6) formatted += '-';
-        formatted += raw[i];
-      }
-      if (formatted != _dobController.text) {
-        _dobController.value = TextEditingValue(
-          text: formatted,
-          selection: TextSelection.collapsed(offset: formatted.length),
-        );
-      }
-      widget.formData['date_of_birth'] = formatted;
-    }
+    _subCasteController = TextEditingController(
+      text: widget.formData['sub_caste'] ?? '',
+    );
   }
 
   @override
   void dispose() {
     _nameController.dispose();
-    _dobController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
+    _subCasteController.dispose();
     super.dispose();
   }
 
-  Future<void> _pickAndUploadPhoto() async {
-    final profileService = ProfileService();
+  int? _calculateAge(String? dobStr) {
+    if (dobStr == null || dobStr.isEmpty) return null;
     try {
-      final url = await profileService.pickAndUploadProfilePhoto();
-      if (url != null && mounted) {
-        widget.onUpdate('profile_photo_url', url);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Profile photo uploaded!'),
-            backgroundColor: Color(0xFF34C759),
-          ),
-        );
+      final dob = DateTime.parse(dobStr.split('T')[0]);
+      final now = DateTime.now();
+      int age = now.year - dob.year;
+      if (now.month < dob.month || (now.month == dob.month && now.day < dob.day)) {
+        age--;
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              e is AppException
-                  ? e.message
-                  : 'Something went wrong. Please try again.',
-            ),
-            backgroundColor: const Color(0xFFFF3B30),
-          ),
-        );
-      }
+      return age > 0 ? age : null;
+    } catch (_) {
+      return null;
     }
   }
 
-  Future<void> _pickAndUploadAdditionalPhoto() async {
-    final profileService = ProfileService();
-    try {
-      final url = await profileService.pickAndUploadAdditionalPhoto();
-      if (url != null && mounted) {
-        final currentUrls = List<String>.from(
-          widget.formData['additional_photo_urls'] ?? [],
-        );
-        currentUrls.add(url);
-        widget.onUpdate('additional_photo_urls', currentUrls);
-
-        // Auto-save to database immediately
-        try {
-          await profileService.updateProfileFields({
-            'additional_photo_urls': currentUrls,
-          });
-        } catch (e) {
-          debugPrint('Failed to auto-save additional photos: $e');
-        }
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Additional photo uploaded!'),
-              backgroundColor: Color(0xFF34C759),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              e is AppException
-                  ? e.message
-                  : 'Something went wrong. Please try again.',
-            ),
-            backgroundColor: const Color(0xFFFF3B30),
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _deleteAdditionalPhoto(int index) async {
-    final currentUrls = List<String>.from(
-      widget.formData['additional_photo_urls'] ?? [],
-    );
-    if (index >= 0 && index < currentUrls.length) {
-      currentUrls.removeAt(index);
-      widget.onUpdate('additional_photo_urls', currentUrls);
-
-      // Auto-save to database immediately
+  void _pickDateOfBirth() async {
+    FocusScope.of(context).unfocus();
+    DateTime? initialDate;
+    final currentStr = widget.formData['date_of_birth'] as String?;
+    if (currentStr != null && currentStr.isNotEmpty) {
       try {
-        await ProfileService().updateProfileFields({
-          'additional_photo_urls': currentUrls,
-        });
-      } catch (e) {
-        debugPrint('Failed to auto-save after deleting photo: $e');
-      }
+        initialDate = DateTime.parse(currentStr.split('T')[0]);
+      } catch (_) {}
     }
-  }
 
-  Widget _buildPhotoItem({
-    required String? url,
-    required bool isMain,
-    required VoidCallback? onTap,
-    required VoidCallback? onDelete,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 100,
-        height: 100,
-        margin: const EdgeInsets.only(right: 12),
-        child: Stack(
-          children: [
-            Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF2F2F7),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE5E5EA), width: 1),
-              ),
-              child: url != null && url.isNotEmpty
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(11),
-                      child: Image.network(
-                        url,
-                        width: 100,
-                        height: 100,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          debugPrint('Image.network failed to load: $url');
-                          debugPrint('Error: $error');
-                          return const Icon(
-                            Icons.camera_alt,
-                            color: Color(0xFF8E8E93),
-                            size: 32,
-                          );
-                        },
-                      ),
-                    )
-                  : const Center(
-                      child: Icon(
-                        Icons.person,
-                        color: Color(0xFF8E8E93),
-                        size: 32,
-                      ),
-                    ),
-            ),
-            if (isMain)
-              Positioned(
-                bottom: 4,
-                left: 0,
-                right: 0,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  color: Colors.black.withValues(alpha: 0.5),
-                  child: const Text(
-                    'Main',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-            if (onDelete != null)
-              Positioned(
-                top: 4,
-                right: 4,
-                child: GestureDetector(
-                  onTap: onDelete,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.close,
-                      size: 14,
-                      color: Colors.black,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
+    final gender = widget.formData['gender']?.toString().toLowerCase();
+    final minAge = gender == 'male' ? 21 : 18;
 
-  Widget _buildAddPhotoButton() {
-    return GestureDetector(
-      onTap: _pickAndUploadAdditionalPhoto,
-      child: Container(
-        width: 100,
-        height: 100,
-        margin: const EdgeInsets.only(right: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF2F2F7),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE5E5EA), width: 1),
-        ),
-        child: const Center(
-          child: Icon(Icons.add_a_photo, color: Color(0xFF8E8E93), size: 32),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionLabel(String label) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 12, bottom: 4),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-          color: Color(0xFF1C1C1E),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDropdownContainer(String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF2F2F7),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            text,
-            style: const TextStyle(fontSize: 15, color: Color(0xFF1C1C1E)),
-          ),
-          const Icon(Icons.chevron_right, color: Color(0xFFC7C7CC)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSelectField(
-    String label,
-    String fieldKey,
-    List<LookupOption> options,
-  ) {
-    final valueId = widget.formData[fieldKey];
-    final selectedOption = options.firstWhere(
-      (opt) => opt.id == valueId,
-      orElse: () => LookupOption(id: -1, label: 'Not Provided'),
+    final picked = await LuxuryDatePicker.show(
+      context: context,
+      initialDate: initialDate,
+      minimumAge: minAge,
+      title: gender == 'male' ? 'Select Date of Birth (21+ for Groom)' : 'Select Date of Birth (18+ for Bride)',
     );
 
-    return GestureDetector(
-      onTap: () async {
-        final result = await BottomSheetSelector.show(
-          context: context,
-          title: 'Select $label',
-          options: options,
-          selectedOption: selectedOption.id == -1 ? null : selectedOption,
-        );
-        if (result != null) {
-          widget.onUpdate(fieldKey, result.id);
-        }
-      },
-      child: _buildDropdownContainer(
-        selectedOption.id == -1 ? 'Select $label' : selectedOption.label,
-      ),
-    );
-  }
-
-  Widget _buildSelectFieldForString(
-    String label,
-    String fieldKey,
-    List<LookupOption> options,
-  ) {
-    final valueStr = widget.formData[fieldKey];
-    final selectedOption = options.firstWhere(
-      (opt) => opt.label == valueStr,
-      orElse: () => LookupOption(id: -1, label: 'Not Provided'),
-    );
-
-    return GestureDetector(
-      onTap: () async {
-        final result = await BottomSheetSelector.show(
-          context: context,
-          title: 'Select $label',
-          options: options,
-          selectedOption: selectedOption.id == -1 ? null : selectedOption,
-        );
-        if (result != null) {
-          widget.onUpdate(fieldKey, result.label);
-        }
-      },
-      child: _buildDropdownContainer(
-        selectedOption.id == -1 ? 'Select $label' : selectedOption.label,
-      ),
-    );
-  }
-
-  Widget _buildGenderSelector() {
-    final gender = widget.formData['gender'] ?? '';
-    return Container(
-      height: 56,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF2F2F7),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: GestureDetector(
-              onTap: () => widget.onUpdate('gender', 'Male'),
-              child: Container(
-                margin: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: gender == 'Male' ? Colors.white : Colors.transparent,
-                  borderRadius: BorderRadius.circular(6),
-                  boxShadow: gender == 'Male'
-                      ? [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.04),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : [],
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  'Male',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 15,
-                    fontWeight: gender == 'Male'
-                        ? FontWeight.w600
-                        : FontWeight.w500,
-                    color: gender == 'Male'
-                        ? const Color(0xFF1C1C1E)
-                        : const Color(0xFF8E8E93),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            child: GestureDetector(
-              onTap: () => widget.onUpdate('gender', 'Female'),
-              child: Container(
-                margin: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: gender == 'Female' ? Colors.white : Colors.transparent,
-                  borderRadius: BorderRadius.circular(6),
-                  boxShadow: gender == 'Female'
-                      ? [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.04),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : [],
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  'Female',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 15,
-                    fontWeight: gender == 'Female'
-                        ? FontWeight.w600
-                        : FontWeight.w500,
-                    color: gender == 'Female'
-                        ? const Color(0xFF1C1C1E)
-                        : const Color(0xFF8E8E93),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+    if (picked != null) {
+      final formatted =
+          '${picked.year.toString().padLeft(4, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+      widget.onUpdate('date_of_birth', formatted);
+      setState(() {});
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final photoUrl = widget.formData['profile_photo_url']?.toString();
+    final selectedGender = widget.formData['gender']?.toString();
+    final selectedCreatedFor = widget.formData['created_for']?.toString() ?? 'Self';
+    final dob = widget.formData['date_of_birth'] as String?;
+    final age = _calculateAge(dob);
+
+    // Height lookup label
+    final heightInches = widget.formData['height_inches'];
+    final heightLabel = _heightOptions.firstWhere(
+      (opt) => opt.id == heightInches,
+      orElse: () => LookupOption(id: -1, label: 'Select Height'),
+    ).label;
+
+    // Mother Tongue lookup label
+    final motherTongues = widget.lookupData?['mother_tongues'] ?? [];
+    final selectedMotherTongueId = widget.formData['mother_tongue_id'];
+    final motherTongueLabel = motherTongues.firstWhere(
+      (opt) => opt.id == selectedMotherTongueId,
+      orElse: () => LookupOption(id: -1, label: 'Select Mother Tongue'),
+    ).label;
+
+    // Caste lookup label
+    final castes = widget.lookupData?['castes'] ?? [];
+    final selectedCasteId = widget.formData['caste_id'];
+    final casteLabel = castes.firstWhere(
+      (opt) => opt.id == selectedCasteId,
+      orElse: () => LookupOption(id: -1, label: 'Select Caste'),
+    ).label;
+
+    // Marital Status options
+    final maritalStatuses = widget.lookupData?['marital_statuses'] ?? [];
+    final selectedMaritalStatusId = widget.formData['marital_status_id'];
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Screen Title
           const Text(
-            'Profile Photos (Max 6)',
+            'Sacred Identity',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Playfair Display',
+              fontSize: 28,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF6E1732),
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Begin your journey towards a sacred union',
+            textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: 'Inter',
-              fontSize: 16,
+              fontSize: 14,
+              fontWeight: FontWeight.w400,
+              color: Color(0xFF8B7355),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // 1. Auspicious Luxury Multi-Photo Manager (1 Main + 5 Additional Gallery Photos)
+          LuxuryMultiPhotoPicker(
+            mainPhotoUrl: widget.formData['profile_photo_url']?.toString(),
+            additionalPhotoUrls: List<String>.from(
+              widget.formData['additional_photo_urls'] ?? [],
+            ),
+            onPhotosChanged: (mainUrl, additionalUrls) {
+              widget.onUpdate('profile_photo_url', mainUrl);
+              widget.onUpdate('additional_photo_urls', additionalUrls);
+              setState(() {});
+            },
+          ),
+
+          const SizedBox(height: 28),
+
+          // 2. Profile Created For (One-Tap Tactile Pills)
+          const Text(
+            'Profile Created For',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF1C1C1E),
+              color: Color(0xFF3E2723),
             ),
           ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 100,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: [
-                // Main Photo
-                _buildPhotoItem(
-                  url: photoUrl,
-                  isMain: true,
-                  onTap: _pickAndUploadPhoto,
-                  onDelete: null,
-                ),
-                // Additional Photos
-                ...List.generate(
-                  (widget.formData['additional_photo_urls'] as List?)?.length ??
-                      0,
-                  (index) {
-                    final urls = List<String>.from(
-                      widget.formData['additional_photo_urls'] ?? [],
-                    );
-                    return _buildPhotoItem(
-                      url: urls[index],
-                      isMain: false,
-                      onTap: null, // don't replace, just delete and add new
-                      onDelete: () => _deleteAdditionalPhoto(index),
-                    );
-                  },
-                ),
-                // Add button if under 5 additional photos (6 total)
-                if (((widget.formData['additional_photo_urls'] as List?)
-                            ?.length ??
-                        0) <
-                    5)
-                  _buildAddPhotoButton(),
-              ],
-            ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 10,
+            children: _createdForOptions.map((opt) {
+              final isSelected = selectedCreatedFor.toLowerCase() == opt.toLowerCase();
+              return LuxurySelectionChip(
+                label: opt,
+                isSelected: isSelected,
+                onSelected: () => widget.onUpdate('created_for', opt),
+              );
+            }).toList(),
           ),
+
           const SizedBox(height: 24),
 
+          // 3. Gender (Twin Elevated Cards)
           const Text(
-            'Basic Details',
+            'Gender',
             style: TextStyle(
               fontFamily: 'Inter',
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF1C1C1E),
-              letterSpacing: -0.5,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF3E2723),
             ),
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'Let\'s start with your fundamental information.',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 15,
-              fontWeight: FontWeight.w400,
-              color: Color(0xFF8E8E93),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          _buildSectionLabel('Profile created for'),
-          _buildSelectFieldForString(
-            'Profile created for',
-            'created_for',
-            _createdForOptions,
-          ),
-
-          _buildSectionLabel('Full Name'),
-          AppleTextField(
-            controller: _nameController,
-            hintText: 'Full Name',
-            prefixIcon: Icons.person_outline,
-            onChanged: (val) => widget.formData['full_name'] = val,
-          ),
-
-          _buildSectionLabel('Gender'),
-          _buildGenderSelector(),
-
-          _buildSectionLabel('Date of Birth'),
-          AppleTextField(
-            controller: _dobController,
-            hintText: 'YYYY-MM-DD',
-            prefixIcon: Icons.calendar_today_outlined,
-            keyboardType: TextInputType.number,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(8),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              LuxuryGenderCard(
+                title: 'Groom',
+                emoji: '🤵',
+                isSelected: selectedGender == 'Male',
+                onTap: () => widget.onUpdate('gender', 'Male'),
+              ),
+              const SizedBox(width: 12),
+              LuxuryGenderCard(
+                title: 'Bride',
+                emoji: '👰',
+                isSelected: selectedGender == 'Female',
+                onTap: () => widget.onUpdate('gender', 'Female'),
+              ),
             ],
-            onChanged: (val) => widget.formData['date_of_birth'] = val,
           ),
 
-          _buildSectionLabel('Height'),
-          _buildSelectField('Height', 'height_inches', _heightOptions),
+          const SizedBox(height: 24),
 
-          _buildSectionLabel('Mobile Number'),
-          AppleTextField(
-            controller: _phoneController,
-            hintText: 'Phone Number',
-            prefixIcon: Icons.phone_outlined,
-            keyboardType: TextInputType.phone,
-            onChanged: (val) => widget.formData['phone'] = val,
+          // 4. Full Name (Luxury Clean Input)
+          LuxuryTextField(
+            label: 'Full Name',
+            hintText: 'Enter your full name',
+            controller: _nameController,
+            isRequired: true,
+            prefixIcon: const Icon(Icons.person_outline, color: Color(0xFFC99A4B), size: 20),
+            onChanged: (val) => widget.onUpdate('full_name', val),
           ),
 
-          _buildSectionLabel('Email Address'),
-          AppleTextField(
-            controller: _emailController,
-            hintText: 'Email Address',
-            prefixIcon: Icons.email_outlined,
-            keyboardType: TextInputType.emailAddress,
-            onChanged: (val) => widget.formData['email'] = val,
+          const SizedBox(height: 20),
+
+          // 5. Date of Birth (Luxury Cupertino Card)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Text(
+                    'Date of Birth',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF3E2723),
+                    ),
+                  ),
+                  Text(
+                    ' *',
+                    style: TextStyle(
+                      color: Color(0xFFC99A4B),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: _pickDateOfBirth,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: dob != null ? const Color(0xFFC99A4B) : const Color(0xFFE5DDD0),
+                      width: 1.0,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.02),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.calendar_today_rounded,
+                        size: 20,
+                        color: Color(0xFFC99A4B),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          (dob != null && dob.isNotEmpty)
+                              ? (age != null ? '$dob  (Age: $age Yrs)' : dob)
+                              : 'Select Date of Birth',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 15,
+                            fontWeight: dob != null ? FontWeight.w600 : FontWeight.w400,
+                            color: dob != null ? const Color(0xFF2C1810) : const Color(0xFFB0A294),
+                          ),
+                        ),
+                      ),
+                      const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        color: Color(0xFF8B7355),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
 
-          if (widget.lookupData != null) ...[
-            _buildSectionLabel('Marital Status'),
-            _buildSelectField(
+          const SizedBox(height: 20),
+
+          // 6. Height (Tactile Selector)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Height',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF3E2723),
+                ),
+              ),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: () async {
+                  FocusScope.of(context).unfocus();
+                  final selected = _heightOptions.firstWhere(
+                    (o) => o.id == heightInches,
+                    orElse: () => _heightOptions[17],
+                  );
+                  final result = await BottomSheetSelector.show(
+                    context: context,
+                    title: 'Select Height',
+                    options: _heightOptions,
+                    selectedOption: selected,
+                  );
+                  if (result != null) {
+                    widget.onUpdate('height_inches', result.id);
+                    setState(() {});
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: heightInches != null ? const Color(0xFFC99A4B) : const Color(0xFFE5DDD0),
+                      width: 1.0,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.02),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.straighten_rounded, size: 20, color: Color(0xFFC99A4B)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          heightInches != null ? heightLabel : 'Select Height',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 15,
+                            fontWeight: heightInches != null ? FontWeight.w600 : FontWeight.w400,
+                            color: heightInches != null ? const Color(0xFF2C1810) : const Color(0xFFB0A294),
+                          ),
+                        ),
+                      ),
+                      const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF8B7355)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          // 7. Marital Status (Tactile Selection Chips)
+          if (maritalStatuses.isNotEmpty) ...[
+            const Text(
               'Marital Status',
-              'marital_status_id',
-              widget.lookupData!['marital_statuses'] ?? [],
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF3E2723),
+              ),
             ),
-
-            _buildSectionLabel('Mother Tongue'),
-            _buildSelectField(
-              'Mother Tongue',
-              'mother_tongue_id',
-              widget.lookupData!['mother_tongues'] ?? [],
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 10,
+              children: maritalStatuses.map((opt) {
+                final isSelected = selectedMaritalStatusId == opt.id;
+                return LuxurySelectionChip(
+                  label: opt.label,
+                  isSelected: isSelected,
+                  onSelected: () {
+                    widget.onUpdate('marital_status_id', opt.id);
+                    setState(() {});
+                  },
+                );
+              }).toList(),
             ),
-
-            _buildSectionLabel('Caste'),
-            _buildSelectField(
-              'Caste',
-              'caste_id',
-              widget.lookupData!['castes'] ?? [],
-            ),
+            const SizedBox(height: 24),
           ],
 
-          _buildSectionLabel('Sub Caste'),
-          AppleTextField(
-            hintText: 'Sub Caste',
-            prefixIcon: Icons.people_outline,
-            onChanged: (val) => widget.formData['sub_caste'] = val,
-            controller: TextEditingController(
-              text: widget.formData['sub_caste'] ?? '',
+          // 8. Mother Tongue & Caste (Clean Selectors)
+          if (motherTongues.isNotEmpty) ...[
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Mother Tongue',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF3E2723),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: () async {
+                    FocusScope.of(context).unfocus();
+                    final selected = motherTongues.firstWhere(
+                      (o) => o.id == selectedMotherTongueId,
+                      orElse: () => LookupOption(id: -1, label: ''),
+                    );
+                    final result = await BottomSheetSelector.show(
+                      context: context,
+                      title: 'Select Mother Tongue',
+                      options: motherTongues,
+                      selectedOption: selected.id == -1 ? null : selected,
+                    );
+                    if (result != null) {
+                      widget.onUpdate('mother_tongue_id', result.id);
+                      setState(() {});
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE5DDD0)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.language_rounded, size: 20, color: Color(0xFFC99A4B)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            selectedMotherTongueId != null ? motherTongueLabel : 'Select Mother Tongue',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 15,
+                              fontWeight: selectedMotherTongueId != null ? FontWeight.w600 : FontWeight.w400,
+                              color: selectedMotherTongueId != null ? const Color(0xFF2C1810) : const Color(0xFFB0A294),
+                            ),
+                          ),
+                        ),
+                        const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF8B7355)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
+            const SizedBox(height: 20),
+          ],
+
+          if (castes.isNotEmpty) ...[
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Caste / Community',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF3E2723),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: () async {
+                    FocusScope.of(context).unfocus();
+                    final selected = castes.firstWhere(
+                      (o) => o.id == selectedCasteId,
+                      orElse: () => LookupOption(id: -1, label: ''),
+                    );
+                    final result = await BottomSheetSelector.show(
+                      context: context,
+                      title: 'Select Caste',
+                      options: castes,
+                      selectedOption: selected.id == -1 ? null : selected,
+                    );
+                    if (result != null) {
+                      widget.onUpdate('caste_id', result.id);
+                      setState(() {});
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE5DDD0)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.temple_hindu_rounded, size: 20, color: Color(0xFFC99A4B)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            selectedCasteId != null ? casteLabel : 'Select Caste',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 15,
+                              fontWeight: selectedCasteId != null ? FontWeight.w600 : FontWeight.w400,
+                              color: selectedCasteId != null ? const Color(0xFF2C1810) : const Color(0xFFB0A294),
+                            ),
+                          ),
+                        ),
+                        const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF8B7355)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          LuxuryTextField(
+            label: 'Sub Caste (Optional)',
+            hintText: 'e.g. Niyogi, Vaidiki, Vadakalai, Smartha',
+            controller: _subCasteController,
+            prefixIcon: const Icon(Icons.auto_awesome_rounded, color: Color(0xFFC99A4B), size: 20),
+            onChanged: (val) => widget.onUpdate('sub_caste', val),
           ),
 
-          const SizedBox(height: 32), // Bottom padding before CTA
+          const SizedBox(height: 32),
         ],
       ),
     );

@@ -32,8 +32,7 @@ yarn-error.*
 
 # local env files
 # Environment variables
-.env
-.env*.local
+.env*
 
 
 # typescript
@@ -45,5 +44,12 @@ yarn-error.*
 
 # secrets
 client_secret_*.json
+*service_account*.json
+*service-account*.json
+firebase-adminsdk*.json
+.env*.local
 .claude/
 .mcp.json
+scratch/
+supabase/.temp/
+supabase/.branches/

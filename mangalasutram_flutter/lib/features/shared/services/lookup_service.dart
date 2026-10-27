@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import '../../../models/profile.dart';
+import '../../../models/lookup_option.dart';
 import '../../auth/services/supabase_service.dart';
 
 class LookupService {

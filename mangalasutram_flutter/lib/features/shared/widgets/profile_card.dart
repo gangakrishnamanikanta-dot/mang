@@ -9,7 +9,7 @@ enum ProfileCardVariant { compact, expanded }
 
 class ProfileCard extends StatelessWidget {
   final Profile profile;
-  final int matchScore;
+  final num matchScore;
   final ProfileCardVariant variant;
   final bool showInfo;
   final VoidCallback? onTap;
@@ -22,19 +22,6 @@ class ProfileCard extends StatelessWidget {
     this.showInfo = true,
     this.onTap,
   });
-
-  int get _ageFromDOB {
-    if (profile.dateOfBirth == null) return 0;
-    final dob = DateTime.tryParse(profile.dateOfBirth!);
-    if (dob == null) return 0;
-    final now = DateTime.now();
-    int age = now.year - dob.year;
-    if (now.month < dob.month ||
-        (now.month == dob.month && now.day < dob.day)) {
-      age--;
-    }
-    return age;
-  }
 
   Color get _badgeColor {
     if (matchScore >= 80) return const Color(0xFF2E7D32);
@@ -77,7 +64,7 @@ class ProfileCard extends StatelessWidget {
   }
 
   Widget _buildCompact(BuildContext context) {
-    final age = _ageFromDOB;
+    final age = profile.computedAge;
     final city = profile.city ?? profile.workLocation ?? '';
     final state = profile.state ?? '';
     final location = [city, state].where((s) => s.isNotEmpty).join(', ');
@@ -235,7 +222,7 @@ class ProfileCard extends StatelessWidget {
                   ],
                 ),
                 child: Text(
-                  '$matchScore%',
+                  '${matchScore.round()}%',
                   style: const TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 10,
@@ -252,14 +239,7 @@ class ProfileCard extends StatelessWidget {
   }
 
   Widget _buildExpanded(BuildContext context) {
-    final age = _ageFromDOB;
-    final location = [
-      profile.city,
-      profile.state,
-    ].where((s) => s != null && s.isNotEmpty).join(', ');
-    final heightText = profile.heightInches != null
-        ? '${profile.heightInches! ~/ 12} ft ${profile.heightInches! % 12} in'
-        : '';
+    final age = profile.computedAge;
     return GestureDetector(
       onTap: () => _onTap(context),
       child: Container(
@@ -285,7 +265,7 @@ class ProfileCard extends StatelessWidget {
                   ? Image.network(
                       profile.profilePhotoUrl!,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) =>
+                      errorBuilder: (context, error, stackTrace) =>
                           _buildPlaceholder(context, true),
                     )
                   : _buildPlaceholder(context, true),

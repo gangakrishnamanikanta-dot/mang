@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import '../../../shared/widgets/apple_text_field.dart';
-import '../../../shared/widgets/bottom_sheet_selector.dart';
-import '../../../models/profile.dart';
+import '../../../models/lookup_option.dart';
+import '../widgets/luxury_dropdown_field.dart';
+import '../widgets/luxury_selection_chip.dart';
+import '../widgets/luxury_text_field.dart';
 
 class Step4Family extends StatefulWidget {
   final Map<String, dynamic> formData;
@@ -25,15 +26,18 @@ class _Step4FamilyState extends State<Step4Family> {
   late TextEditingController _motherNameController;
   late TextEditingController _motherOccController;
   late TextEditingController _nativePlaceController;
+  late TextEditingController _familyDescController;
 
-  List<LookupOption> get _familyTypes =>
-      widget.lookupData?['family_types'] ?? [];
+  List<LookupOption> get _familyTypes => widget.lookupData?['family_types'] ?? [];
 
-  final List<LookupOption> _siblingOptions = List.generate(
-    11,
-    (index) =>
-        LookupOption(id: index, label: index == 0 ? 'None' : index.toString()),
-  );
+  static const List<String> _familyValuesOptions = [
+    'Traditional & Orthodox',
+    'Traditional Modern',
+    'Moderate & Cultured',
+    'Liberal',
+  ];
+
+  static const List<int> _siblingCounts = [0, 1, 2, 3];
 
   @override
   void initState() {
@@ -53,6 +57,9 @@ class _Step4FamilyState extends State<Step4Family> {
     _nativePlaceController = TextEditingController(
       text: widget.formData['native_place'] ?? '',
     );
+    _familyDescController = TextEditingController(
+      text: widget.formData['family_description'] ?? '',
+    );
   }
 
   @override
@@ -62,93 +69,121 @@ class _Step4FamilyState extends State<Step4Family> {
     _motherNameController.dispose();
     _motherOccController.dispose();
     _nativePlaceController.dispose();
+    _familyDescController.dispose();
     super.dispose();
   }
 
-  Widget _buildSectionLabel(String label) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 12, bottom: 4),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-          color: Color(0xFF1C1C1E),
-        ),
+  Widget _buildSectionContainer({
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFEADBCE), width: 1.0),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF6E1732).withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 20, color: const Color(0xFFC99A4B)),
+              const SizedBox(width: 10),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF6E1732),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ...children,
+        ],
       ),
     );
   }
 
-  Future<void> _openSelector(
-    String title,
-    String fieldKey,
-    List<LookupOption> options,
-  ) async {
-    final currentId = widget.formData[fieldKey];
-    LookupOption? selected;
-    if (currentId != null) {
-      try {
-        selected = options.firstWhere((o) => o.id == currentId);
-      } catch (_) {}
-    }
-
-    final result = await BottomSheetSelector.show(
-      context: context,
-      title: title,
-      options: options,
-      selectedOption: selected,
-    );
-
-    if (result != null) {
-      widget.onUpdate(fieldKey, result.id);
-      setState(() {});
-    }
-  }
-
-  Widget _buildSelectField(
-    String label,
-    String fieldKey,
-    List<LookupOption> options,
-  ) {
-    final currentId = widget.formData[fieldKey];
-    String displayValue = 'Select...';
-    if (currentId != null) {
-      try {
-        displayValue = options.firstWhere((o) => o.id == currentId).label;
-      } catch (_) {}
-    }
-
+  Widget _buildSiblingSelector({
+    required String label,
+    required int selectedCount,
+    required ValueChanged<int> onSelect,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionLabel(label),
-        GestureDetector(
-          onTap: () => _openSelector('Select $label', fieldKey, options),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFFFFF),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE5E5EA)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  displayValue,
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 16,
-                    color: currentId == null
-                        ? const Color(0xFFC7C7CC)
-                        : const Color(0xFF1C1C1E),
+        Text(
+          label,
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF3E2723),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: _siblingCounts.map((count) {
+            final isSelected = selectedCount == count;
+            final String text = count == 0
+                ? 'None'
+                : count == 3
+                    ? '3+'
+                    : count.toString();
+            return Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: GestureDetector(
+                  onTap: () => onSelect(count),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: BoxDecoration(
+                      color: isSelected ? const Color(0xFF6E1732) : const Color(0xFFF9F6F0),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSelected ? const Color(0xFFC99A4B) : const Color(0xFFE2D8C8),
+                        width: isSelected ? 1.5 : 1.0,
+                      ),
+                      boxShadow: isSelected
+                          ? [
+                              BoxShadow(
+                                color: const Color(0xFF6E1732).withValues(alpha: 0.25),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ]
+                          : [],
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      text,
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 14,
+                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                        color: isSelected ? Colors.white : const Color(0xFF4A3B32),
+                      ),
+                    ),
                   ),
                 ),
-                const Icon(Icons.chevron_right, color: Color(0xFFC7C7CC)),
-              ],
-            ),
-          ),
+              ),
+            );
+          }).toList(),
         ),
       ],
     );
@@ -156,88 +191,186 @@ class _Step4FamilyState extends State<Step4Family> {
 
   @override
   Widget build(BuildContext context) {
+    final familyTypeId = widget.formData['family_type_id'];
+    final familyTypeLabel = _familyTypes.firstWhere(
+      (o) => o.id == familyTypeId,
+      orElse: () => LookupOption(id: -1, label: ''),
+    ).label;
+
+    final selectedFamilyValues = widget.formData['family_values'] as String?;
+    final brothersCount = widget.formData['brothers_count'] as int? ?? 0;
+    final sistersCount = widget.formData['sisters_count'] as int? ?? 0;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Title
           const Text(
-            'Family Details',
+            'Family Lineage & Roots',
+            textAlign: TextAlign.center,
             style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 22,
+              fontFamily: 'Playfair Display',
+              fontSize: 26,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF1C1C1E),
-              letterSpacing: -0.5,
+              color: Color(0xFF6E1732),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           const Text(
-            'Help your matches understand your family background.',
+            'Your family culture, heritage, and values',
+            textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: 'Inter',
-              fontSize: 15,
+              fontSize: 14,
               fontWeight: FontWeight.w400,
-              color: Color(0xFF8E8E93),
+              color: Color(0xFF8B7355),
             ),
-          ),
-
-          const SizedBox(height: 8),
-
-          _buildSelectField('Family Type', 'family_type_id', _familyTypes),
-
-          _buildSectionLabel('Father\'s Name'),
-          AppleTextField(
-            controller: _fatherNameController,
-            hintText: 'Enter father\'s name',
-            onChanged: (val) => widget.formData['father_name'] = val,
-          ),
-
-          _buildSectionLabel('Father\'s Occupation'),
-          AppleTextField(
-            controller: _fatherOccController,
-            hintText: 'e.g. Business, Retired, Govt Employee...',
-            onChanged: (val) => widget.formData['father_occupation'] = val,
           ),
 
           const SizedBox(height: 24),
-          const Divider(color: Color(0xFFE5E5EA)),
-          const SizedBox(height: 8),
 
-          _buildSectionLabel('Mother\'s Name'),
-          AppleTextField(
-            controller: _motherNameController,
-            hintText: 'Enter mother\'s name',
-            onChanged: (val) => widget.formData['mother_name'] = val,
+          // Card 1: Family Culture & Type
+          _buildSectionContainer(
+            title: 'Family Culture & Type',
+            icon: Icons.temple_hindu_rounded,
+            children: [
+              const Text(
+                'Family Values',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF3E2723),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 10,
+                children: _familyValuesOptions.map((opt) {
+                  final isSelected = selectedFamilyValues == opt;
+                  return LuxurySelectionChip(
+                    label: opt,
+                    isSelected: isSelected,
+                    onSelected: () {
+                      widget.onUpdate('family_values', opt);
+                      setState(() {});
+                    },
+                  );
+                }).toList(),
+              ),
+              if (_familyTypes.isNotEmpty) ...[
+                const SizedBox(height: 18),
+                LuxuryDropdownField(
+                  label: 'Family Type',
+                  placeholder: 'Select Family Type (e.g. Nuclear, Joint)',
+                  selectedValue: familyTypeLabel.isNotEmpty ? familyTypeLabel : null,
+                  options: _familyTypes,
+                  prefixIcon: const Icon(Icons.home_work_rounded, color: Color(0xFFC99A4B), size: 20),
+                  onSelected: (opt) {
+                    widget.onUpdate('family_type_id', opt.id);
+                    setState(() {});
+                  },
+                ),
+              ],
+            ],
           ),
 
-          _buildSectionLabel('Mother\'s Occupation'),
-          AppleTextField(
-            controller: _motherOccController,
-            hintText: 'e.g. Homemaker, Teacher...',
-            onChanged: (val) => widget.formData['mother_occupation'] = val,
+          const SizedBox(height: 20),
+
+          // Card 2: Parents' Information
+          _buildSectionContainer(
+            title: 'Parents\' Information',
+            icon: Icons.people_alt_rounded,
+            children: [
+              LuxuryTextField(
+                label: 'Father\'s Name',
+                hintText: 'Enter father\'s full name',
+                controller: _fatherNameController,
+                prefixIcon: const Icon(Icons.person_rounded, color: Color(0xFFC99A4B), size: 20),
+                onChanged: (val) => widget.onUpdate('father_name', val),
+              ),
+              const SizedBox(height: 16),
+              LuxuryTextField(
+                label: 'Father\'s Occupation',
+                hintText: 'e.g. Retired Govt Officer, Business, Engineer',
+                controller: _fatherOccController,
+                prefixIcon: const Icon(Icons.work_outline_rounded, color: Color(0xFFC99A4B), size: 20),
+                onChanged: (val) => widget.onUpdate('father_occupation', val),
+              ),
+              const SizedBox(height: 18),
+              const Divider(color: Color(0xFFF0EAE1), height: 1),
+              const SizedBox(height: 18),
+              LuxuryTextField(
+                label: 'Mother\'s Name',
+                hintText: 'Enter mother\'s full name',
+                controller: _motherNameController,
+                prefixIcon: const Icon(Icons.person_outline_rounded, color: Color(0xFFC99A4B), size: 20),
+                onChanged: (val) => widget.onUpdate('mother_name', val),
+              ),
+              const SizedBox(height: 16),
+              LuxuryTextField(
+                label: 'Mother\'s Occupation',
+                hintText: 'e.g. Homemaker, Teacher, Doctor',
+                controller: _motherOccController,
+                prefixIcon: const Icon(Icons.work_outline_rounded, color: Color(0xFFC99A4B), size: 20),
+                onChanged: (val) => widget.onUpdate('mother_occupation', val),
+              ),
+            ],
           ),
 
-          const SizedBox(height: 12),
-          const Divider(color: Color(0xFFE5E5EA)),
-          const SizedBox(height: 4),
+          const SizedBox(height: 20),
 
-          _buildSectionLabel('Brothers'),
-          _buildSelectField('Brothers', 'brothers_count', _siblingOptions),
+          // Card 3: Siblings
+          _buildSectionContainer(
+            title: 'Siblings',
+            icon: Icons.family_restroom_rounded,
+            children: [
+              _buildSiblingSelector(
+                label: 'Brothers',
+                selectedCount: brothersCount,
+                onSelect: (count) {
+                  widget.onUpdate('brothers_count', count);
+                  setState(() {});
+                },
+              ),
+              const SizedBox(height: 18),
+              _buildSiblingSelector(
+                label: 'Sisters',
+                selectedCount: sistersCount,
+                onSelect: (count) {
+                  widget.onUpdate('sisters_count', count);
+                  setState(() {});
+                },
+              ),
+            ],
+          ),
 
-          _buildSectionLabel('Sisters'),
-          _buildSelectField('Sisters', 'sisters_count', _siblingOptions),
+          const SizedBox(height: 20),
 
-          const SizedBox(height: 12),
-          const Divider(color: Color(0xFFE5E5EA)),
-          const SizedBox(height: 4),
-
-          _buildSectionLabel('Native Place'),
-          AppleTextField(
-            controller: _nativePlaceController,
-            hintText: 'e.g. Rajahmundry, Vijayawada...',
-            onChanged: (val) => widget.formData['native_place'] = val,
-            prefixIcon: Icons.home_outlined,
+          // Card 4: Ancestral Roots & Background
+          _buildSectionContainer(
+            title: 'Ancestral Roots',
+            icon: Icons.location_on_rounded,
+            children: [
+              LuxuryTextField(
+                label: 'Native Place / Ancestral Town',
+                hintText: 'e.g. Rajahmundry, Thanjavur, Palakkad, Udupi',
+                controller: _nativePlaceController,
+                prefixIcon: const Icon(Icons.pin_drop_rounded, color: Color(0xFFC99A4B), size: 20),
+                onChanged: (val) => widget.onUpdate('native_place', val),
+              ),
+              const SizedBox(height: 16),
+              LuxuryTextField(
+                label: 'About Family (Optional)',
+                hintText: 'Briefly describe your family background and traditions...',
+                controller: _familyDescController,
+                maxLines: 3,
+                onChanged: (val) => widget.onUpdate('family_description', val),
+              ),
+            ],
           ),
 
           const SizedBox(height: 32),

@@ -50,24 +50,23 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Rate limiting: check attempts from this IP (max 5 failed verifications in 10 min)
+    // Rate limiting: check attempts from this IP AND target email (max 5 failed verifications in 10 min)
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
     const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const cleanEmail = email.trim().toLowerCase();
 
-    const { data: ipAttempts } = await supabaseClient
+    const { data: recentAttempts } = await supabaseClient
       .from("otp_rate_limits")
-      .select("*")
-      .eq("identifier", clientIp)
-      .eq("identifier_type", "ip")
+      .select("identifier, identifier_type, blocked_until")
+      .or(`and(identifier.eq.${clientIp},identifier_type.eq.ip),and(identifier.eq.${cleanEmail},identifier_type.eq.email)`)
       .gte("last_attempt_at", tenMinAgo);
 
-    const failedAttempts = ipAttempts?.filter(
-      (r: any) => !r.blocked_until
-    ).length || 0;
+    const ipFailed = recentAttempts?.filter((r: any) => r.identifier_type === "ip" && !r.blocked_until).length || 0;
+    const emailFailed = recentAttempts?.filter((r: any) => r.identifier_type === "email" && !r.blocked_until).length || 0;
 
-    if (failedAttempts >= 5) {
+    if (ipFailed >= 5 || emailFailed >= 5) {
       return new Response(
-        JSON.stringify({ error: "Too many failed attempts. Please try again later." }),
+        JSON.stringify({ error: "Too many failed verification attempts. Please wait 10 minutes or request a new OTP." }),
         { status: 429, headers: { "Content-Type": "application/json", ...corsHeaders } }
       );
     }

@@ -1,13 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../constants/theme.dart';
+import '../../../models/lookup_option.dart';
 import '../../../models/profile.dart';
+import '../../../models/partner_preference.dart';
 import '../../shared/services/lookup_service.dart';
 import '../../../models/interest.dart';
 import '../../interests/services/interest_service.dart';
+import '../../home/services/home_service.dart';
+import './edit_sections/edit_religion_screen.dart';
 import '../../../core/di.dart';
 import '../../../core/exceptions/app_exception.dart';
 import '../../auth/services/supabase_service.dart';
+import '../../subscription/widgets/contact_unlock_dialog.dart';
+import '../../subscription/widgets/quota_exhausted_sheet.dart';
+import '../../messaging/screens/chat_conversation_screen.dart';
+import '../services/profile_service.dart';
+import '../../shared/services/vedic_astrology_service.dart';
+import '../widgets/safety_action_sheet.dart';
+import '../../family/widgets/discuss_with_family_sheet.dart';
+import '../../family/services/family_service.dart';
 
 class ProfileDetailScreen extends StatefulWidget {
   final Profile profile;
@@ -18,31 +31,43 @@ class ProfileDetailScreen extends StatefulWidget {
 }
 
 class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
+  late Profile _profile;
+  PartnerPreference? _partnerPreference;
   Map<String, List<LookupOption>> _lookups = {};
   bool _isLoading = true;
   String? _errorMessage;
   Interest? _currentInterest;
   bool _isSendingInterest = false;
+  Profile? _myProfile;
+  bool _hasSentHoroscopeRequest = false;
+  bool _isSendingHoroscopeRequest = false;
 
   final ScrollController _scrollController = ScrollController();
   final ScrollController _navScrollController = ScrollController();
 
   final List<String> _sections = [
     'Basic',
+    'Cultural',
     'Education',
+    'Career',
     'Family',
     'Lifestyle',
-    'Cultural',
-    'Career',
+    'Preferences',
   ];
-  final List<GlobalKey> _sectionKeys = List.generate(6, (index) => GlobalKey());
+  final List<GlobalKey> _sectionKeys = List.generate(7, (index) => GlobalKey());
 
   int _activeSectionIndex = 0;
   bool _isAutoScrolling = false;
+  final DateTime _screenOpenedAt = DateTime.now();
 
   @override
   void initState() {
     super.initState();
+    _profile = widget.profile;
+    HomeService.instance.recordProfileView(
+      widget.profile.id,
+      viewedFrom: 'profile_detail',
+    );
     _loadData();
     _scrollController.addListener(_onScroll);
   }
@@ -52,15 +77,41 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
     final interestService = getIt<InterestService>();
 
     try {
+      final myProf = await HomeService.instance.getMyProfile();
+      String? candidateId;
+      Profile? effectiveMyProfile = myProf;
+      if (myProf?.accountType == 'guardian') {
+        final cand = await FamilyService.instance.getGuardianActiveCandidate();
+        candidateId = cand?.candidateId;
+        if (candidateId != null && candidateId.isNotEmpty) {
+          final candProf = await ProfileService().getProfileById(candidateId);
+          if (candProf != null) {
+            effectiveMyProfile = candProf;
+          }
+        }
+      }
+
       final results = await Future.wait([
         lookupService.fetchAllProfileLookups(),
-        interestService.getInterestStatus(widget.profile.id),
+        interestService.getInterestStatus(
+          widget.profile.id,
+          onBehalfOf: candidateId,
+        ),
+        ProfileService().getProfileById(widget.profile.id),
+        ProfileService().getPartnerPreferencesByProfileId(widget.profile.id),
+        HomeService.instance.hasSentHoroscopeRequest(widget.profile.id),
       ]);
 
       if (mounted) {
         setState(() {
           _lookups = results[0] as Map<String, List<LookupOption>>;
           _currentInterest = results[1] as Interest?;
+          if (results[2] != null) {
+            _profile = results[2] as Profile;
+          }
+          _partnerPreference = results[3] as PartnerPreference?;
+          _myProfile = effectiveMyProfile;
+          _hasSentHoroscopeRequest = results[4] as bool? ?? false;
           _isLoading = false;
         });
       }
@@ -74,8 +125,60 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
     }
   }
 
+  Future<void> _sendHoroscopeRequest() async {
+    setState(() => _isSendingHoroscopeRequest = true);
+    HapticFeedback.mediumImpact();
+
+    final success = await HomeService.instance.sendHoroscopeRequest(_profile.id);
+
+    if (mounted) {
+      setState(() {
+        _isSendingHoroscopeRequest = false;
+        if (success) _hasSentHoroscopeRequest = true;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            success
+                ? '📩 Horoscope request sent to ${_profile.fullName}!'
+                : 'Could not send request. Please try again.',
+          ),
+          backgroundColor:
+              success ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+    }
+  }
+
+  int? _calculateGunaMilanScore() {
+    if (_myProfile == null) return null;
+    final isMale = _myProfile!.gender?.toLowerCase() == 'male';
+    final result = VedicAstrologyService.calculate(
+      boyRashiId: isMale ? _myProfile!.rashiId : _profile.rashiId,
+      boyNakshatraId: isMale ? _myProfile!.nakshatraId : _profile.nakshatraId,
+      boyPada: isMale ? _myProfile!.padaId : _profile.padaId,
+      girlRashiId: isMale ? _profile.rashiId : _myProfile!.rashiId,
+      girlNakshatraId: isMale ? _profile.nakshatraId : _myProfile!.nakshatraId,
+      girlPada: isMale ? _profile.padaId : _myProfile!.padaId,
+    );
+    return result?.roundedScore;
+  }
+
   @override
   void dispose() {
+    final dwellSeconds = DateTime.now().difference(_screenOpenedAt).inSeconds;
+    if (dwellSeconds >= 1) {
+      HomeService.instance.recordProfileView(
+        _profile.id,
+        dwellSeconds: dwellSeconds,
+        viewedFrom: 'profile_detail',
+      );
+    }
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _navScrollController.dispose();
@@ -87,9 +190,9 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
 
     final safeAreaTop = MediaQuery.of(context).padding.top;
     final appBarHeight = kToolbarHeight + safeAreaTop;
-    final stickyHeaderHeight = 60.0;
+    const stickyHeaderHeight = 60.0;
     final stickyBottom = appBarHeight + stickyHeaderHeight;
-    final threshold = stickyBottom + 20.0; // 20px padding
+    final threshold = stickyBottom + 20.0;
 
     int newIndex = 0;
 
@@ -117,7 +220,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
 
   void _scrollToNav(int index) {
     if (!_navScrollController.hasClients) return;
-    final itemWidth = 100.0; // Approx width of a nav item
+    const itemWidth = 100.0;
     final targetOffset =
         (index * itemWidth) -
         (MediaQuery.of(context).size.width / 2) +
@@ -143,7 +246,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
 
       final safeAreaTop = MediaQuery.of(context).padding.top;
       final appBarHeight = kToolbarHeight + safeAreaTop;
-      final stickyHeaderHeight = 60.0;
+      const stickyHeaderHeight = 60.0;
       final stickyBottom = appBarHeight + stickyHeaderHeight;
 
       final targetOffset =
@@ -173,6 +276,22 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
     }
   }
 
+  String _getLookupLabelsList(String table, List<int>? ids) {
+    if (ids == null || ids.isEmpty) return 'Doesn\'t Matter';
+    final options = _lookups[table] ?? [];
+    final labels = ids
+        .map((id) {
+          try {
+            return options.firstWhere((opt) => opt.id == id).label;
+          } catch (_) {
+            return null;
+          }
+        })
+        .where((l) => l != null)
+        .join(', ');
+    return labels.isNotEmpty ? labels : 'Doesn\'t Matter';
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -187,14 +306,6 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
     if (_errorMessage != null) {
       return Scaffold(
         backgroundColor: const Color(0xFFFFF8F2),
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.black),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24.0),
@@ -202,15 +313,18 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Icon(
-                  Icons.error_outline,
+                  Icons.error_outline_rounded,
                   color: AppColors.primary,
                   size: 48,
                 ),
                 const SizedBox(height: 16),
                 Text(
                   _errorMessage!,
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    color: AppColors.textPrimary,
+                  ),
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 16),
                 ),
                 const SizedBox(height: 24),
                 ElevatedButton(
@@ -224,7 +338,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(28),
+                      borderRadius: BorderRadius.circular(20),
                     ),
                   ),
                   child: const Text('Retry'),
@@ -248,11 +362,12 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
               SliverList(
                 delegate: SliverChildListDelegate([
                   _buildSectionContainer(0, _buildBasicSection()),
-                  _buildSectionContainer(1, _buildEducationSection()),
-                  _buildSectionContainer(2, _buildFamilySection()),
-                  _buildSectionContainer(3, _buildLifestyleSection()),
-                  _buildSectionContainer(4, _buildCulturalSection()),
-                  _buildSectionContainer(5, _buildCareerSection()),
+                  _buildSectionContainer(1, _buildCulturalSection()),
+                  _buildSectionContainer(2, _buildEducationSection()),
+                  _buildSectionContainer(3, _buildCareerSection()),
+                  _buildSectionContainer(4, _buildFamilySection()),
+                  _buildSectionContainer(5, _buildLifestyleSection()),
+                  _buildSectionContainer(6, _buildPreferencesSection()),
                   const SizedBox(height: 120), // Padding for bottom action bar
                 ]),
               ),
@@ -270,19 +385,6 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
       pinned: true,
       backgroundColor: const Color(0xFFFFF8F2),
       iconTheme: const IconThemeData(color: Colors.white),
-      actions: [
-        Container(
-          margin: const EdgeInsets.only(right: 8),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.3),
-            shape: BoxShape.circle,
-          ),
-          child: IconButton(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
-            onPressed: () {},
-          ),
-        ),
-      ],
       leading: Container(
         margin: const EdgeInsets.all(8),
         decoration: BoxDecoration(
@@ -294,13 +396,53 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
+      actions: [
+        Container(
+          margin: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.3),
+            shape: BoxShape.circle,
+          ),
+          child: IconButton(
+            icon: const Icon(Icons.family_restroom_rounded, color: Colors.white),
+            tooltip: 'Discuss with Family',
+            onPressed: () {
+              DiscussWithFamilySheet.show(
+                context: context,
+                targetProfileId: _profile.id,
+                candidateName: _profile.fullName,
+                candidatePhoto: _profile.profilePhotoUrl,
+                candidateCity: _profile.city,
+              );
+            },
+          ),
+        ),
+        Container(
+          margin: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.3),
+            shape: BoxShape.circle,
+          ),
+          child: IconButton(
+            icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
+            onPressed: () {
+              SafetyActionSheet.show(
+                context,
+                profileId: _profile.id,
+                fullName: _profile.fullName,
+                onBlocked: () => Navigator.pop(context),
+              );
+            },
+          ),
+        ),
+      ],
       flexibleSpace: FlexibleSpaceBar(
         background: Stack(
           fit: StackFit.expand,
           children: [
-            widget.profile.profilePhotoUrl != null
+            _profile.profilePhotoUrl != null
                 ? Image.network(
-                    widget.profile.profilePhotoUrl!,
+                    _profile.profilePhotoUrl!,
                     fit: BoxFit.cover,
                     errorBuilder: (context, error, stackTrace) =>
                         _buildImageFallback(),
@@ -329,21 +471,21 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
                     children: [
                       Expanded(
                         child: Text(
-                          widget.profile.fullName,
+                          _profile.fullName,
                           style: GoogleFonts.playfairDisplay(
                             color: Colors.white,
-                            fontSize: 32,
+                            fontSize: 30,
                             fontWeight: FontWeight.w700,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      if (widget.profile.isVerified) ...[
+                      if (_profile.isVerified) ...[
                         const SizedBox(width: 8),
                         const Icon(
-                          Icons.verified,
-                          color: Color(0xFFF5B759),
+                          Icons.verified_rounded,
+                          color: Color(0xFFD4AF37),
                           size: 24,
                         ),
                       ],
@@ -352,22 +494,23 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
                   const SizedBox(height: 4),
                   Text(
                     [
-                      _age > 0 ? '$_age yrs' : null,
-                      widget.profile.company ?? 'Professional',
-                    ].where((s) => s != null && s.isNotEmpty).join(' • '),
+                      _profile.computedAge > 0 ? '${_profile.computedAge} yrs' : null,
+                      _profile.company ?? _getLookupLabel('occupations', _profile.occupationId),
+                      _profile.city,
+                    ].where((s) => s != null && s.isNotEmpty && s != 'Not provided').join(' • '),
                     style: GoogleFonts.inter(
                       color: Colors.white.withValues(alpha: 0.9),
-                      fontSize: 16,
+                      fontSize: 15,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                   const SizedBox(height: 4),
-                  if (widget.profile.heightInches != null)
+                  if (_profile.heightInches != null)
                     Text(
-                      '${widget.profile.heightInches! ~/ 12}\'${widget.profile.heightInches! % 12}"',
+                      '${_profile.heightInches! ~/ 12}\'${_profile.heightInches! % 12}"',
                       style: GoogleFonts.inter(
-                        color: Colors.white.withValues(alpha: 0.7),
-                        fontSize: 15,
+                        color: Colors.white.withValues(alpha: 0.75),
+                        fontSize: 14,
                       ),
                     ),
                 ],
@@ -379,21 +522,8 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
     );
   }
 
-  int get _age {
-    if (widget.profile.dateOfBirth == null) return 0;
-    final dob = DateTime.tryParse(widget.profile.dateOfBirth!);
-    if (dob == null) return 0;
-    final now = DateTime.now();
-    int age = now.year - dob.year;
-    if (now.month < dob.month ||
-        (now.month == dob.month && now.day < dob.day)) {
-      age--;
-    }
-    return age;
-  }
-
   Widget _buildImageFallback() {
-    final isFemale = widget.profile.gender?.toLowerCase() == 'female';
+    final isFemale = _profile.gender?.toLowerCase() == 'female';
     return Container(
       color: isFemale ? const Color(0xFFFFF0F0) : const Color(0xFFF0F4FF),
       child: Center(
@@ -481,23 +611,379 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSectionTitle('Basic Details'),
-        _buildRow('Full Name', widget.profile.fullName),
-        _buildRow('Gender', widget.profile.gender ?? 'Not provided'),
-        if (widget.profile.dateOfBirth != null)
-          _buildRow('Date of Birth', widget.profile.dateOfBirth!),
+        if (_profile.createdFor != null)
+          _buildRow('Profile Created For', _profile.createdFor!),
+        _buildRow('Full Name', _profile.fullName),
+        _buildRow('Gender', _profile.gender ?? 'Not provided'),
+        if (_profile.dateOfBirth != null)
+          _buildRow('Date of Birth', _profile.dateOfBirth!),
         _buildRow(
           'Height',
-          widget.profile.heightInches != null
-              ? '${widget.profile.heightInches! ~/ 12} ft ${widget.profile.heightInches! % 12} in'
+          _profile.heightInches != null
+              ? '${_profile.heightInches! ~/ 12}\'${_profile.heightInches! % 12}" (${_profile.heightInches} in)'
               : 'Not provided',
         ),
         _buildRow(
           'Marital Status',
-          _getLookupLabel('marital_statuses', widget.profile.maritalStatusId),
+          _getLookupLabel('marital_statuses', _profile.maritalStatusId),
         ),
-        _buildRow('City', widget.profile.city ?? 'Not provided'),
-        _buildRow('State / Region', widget.profile.state ?? 'Not provided'),
+        _buildRow(
+          'Mother Tongue',
+          _getLookupLabel('mother_tongues', _profile.motherTongueId),
+        ),
+        if (_profile.nativePlace != null)
+          _buildRow('Native Place', _profile.nativePlace!),
+        if (_profile.city != null)
+          _buildRow('City', _profile.city!),
+        if (_profile.state != null)
+          _buildRow('State / Region', _profile.state!),
+        if (_profile.countryId != null)
+          _buildRow('Country', _getLookupLabel('countries', _profile.countryId)),
       ],
+    );
+  }
+
+  Widget _buildCulturalSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle('Cultural, Vedic & Astrology'),
+        if (_profile.sampradayam != null)
+          _buildRow('Sampradayam', _profile.sampradayam!),
+        _buildRow('Caste', _getLookupLabel('castes', _profile.casteId)),
+        _buildRow('Sub-caste', _profile.subCaste ?? 'Not provided'),
+        _buildRow(
+          'Gothram',
+          _getLookupLabel('gothrams', _profile.gothramId),
+        ),
+        _buildRow('Pravara', _profile.pravara ?? 'Not provided'),
+        _buildRow(
+          'Veda Shakha',
+          _getLookupLabel('veda_shakhas', _profile.vedaShakhaId),
+        ),
+        _buildRow(
+          'Nakshatram',
+          _getLookupLabel('nakshatras', _profile.nakshatraId),
+        ),
+        _buildRow('Rashi', _getLookupLabel('rashis', _profile.rashiId)),
+        _buildRow('Pada', _getLookupLabel('padas', _profile.padaId)),
+        if (_profile.timeOfBirth != null && _profile.timeOfBirth!.isNotEmpty)
+          _buildRow('Time of Birth', _profile.timeOfBirth!),
+        if (_profile.placeOfBirth != null && _profile.placeOfBirth!.isNotEmpty)
+          _buildRow('Place of Birth', _profile.placeOfBirth!),
+        _buildRow('Kuja Dosham', _profile.kujaDosham ?? (_profile.isManglik == true ? 'Yes' : 'No')),
+        if (_profile.kuladevata != null)
+          _buildRow('Kuladevata', _profile.kuladevata!),
+        if (_profile.sandhyavandanam != null)
+          _buildRow('Sandhyavandanam', _profile.sandhyavandanam!),
+        if (_profile.dailyPooja != null)
+          _buildRow('Daily Pooja', _profile.dailyPooja!),
+        if (_profile.slokaChanting != null)
+          _buildRow('Sloka Chanting', _profile.slokaChanting!),
+        if (_profile.templeVisits != null)
+          _buildRow('Temple Visits', _profile.templeVisits!),
+        if (_profile.festivalParticipation != null)
+          _buildRow('Festivals', _profile.festivalParticipation!),
+        const SizedBox(height: 16),
+        _buildAstrologyCompatibilityCard(),
+      ],
+    );
+  }
+
+  Widget _buildAstrologyCompatibilityCard() {
+    final isUserMissing =
+        _myProfile == null ||
+        _myProfile!.rashiId == null ||
+        _myProfile!.nakshatraId == null;
+
+    final isCandidateMissing =
+        _profile.rashiId == null || _profile.nakshatraId == null;
+
+    final gunaScore = _calculateGunaMilanScore();
+    final isComplete = !isUserMissing && !isCandidateMissing && gunaScore != null;
+
+    if (isComplete) {
+      final isUttama = gunaScore >= 28;
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF9EE),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFC99A4B).withValues(alpha: 0.5), width: 1.2),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFC99A4B).withValues(alpha: 0.08),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFFC99A4B)),
+                    color: const Color(0xFF4A121A),
+                  ),
+                  child: const Center(
+                    child: Icon(
+                      Icons.flare_rounded,
+                      color: Color(0xFFF5B759),
+                      size: 24,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      RichText(
+                        text: TextSpan(
+                          children: [
+                            TextSpan(
+                              text: '$gunaScore ',
+                              style: GoogleFonts.inter(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                                color: const Color(0xFF4A121A),
+                              ),
+                            ),
+                            TextSpan(
+                              text: '/ 36 Gunas',
+                              style: GoogleFonts.inter(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF8C7A6B),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        isUttama ? 'Uttama Compatibility ✨' : 'Good Compatibility',
+                        style: GoogleFonts.inter(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: isUttama ? const Color(0xFF2E7D32) : const Color(0xFFC99A4B),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              isUttama
+                  ? 'Highly auspicious horoscope harmony for traditional Vedic marriage.'
+                  : 'Favorable alignment across canonical Vedic Koots.',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: const Color(0xFF6B5E55),
+                height: 1.3,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (isCandidateMissing && !isUserMissing) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFAF6F0),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFECE4D8)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEFE6DC),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.lock_clock_rounded,
+                    color: Color(0xFF8B1E2D),
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Horoscope Details Locked 🔒',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF4A121A),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${_profile.fullName} has not added their birth star yet.',
+                        style: GoogleFonts.inter(
+                          fontSize: 11.5,
+                          color: const Color(0xFF6B5E55),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: ElevatedButton.icon(
+                onPressed: _hasSentHoroscopeRequest || _isSendingHoroscopeRequest
+                    ? null
+                    : _sendHoroscopeRequest,
+                icon: _isSendingHoroscopeRequest
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Icon(
+                        _hasSentHoroscopeRequest
+                            ? Icons.check_circle_rounded
+                            : Icons.mail_outline_rounded,
+                        size: 18,
+                      ),
+                label: Text(
+                  _hasSentHoroscopeRequest
+                      ? 'Horoscope Requested 📩'
+                      : 'Request Horoscope from ${_profile.fullName}',
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _hasSentHoroscopeRequest
+                      ? const Color(0xFF2E7D32)
+                      : const Color(0xFF8B1E2D),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  elevation: 0,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // User is missing birth star
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7ED),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFFEDD5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFEDD5),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.auto_awesome_motion_rounded,
+                  color: Color(0xFFC2410C),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Guna Milan Calculation Locked 🔒',
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF9A3412),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Add your Birth Star & Rashi to calculate mutual 36-Guna compatibility.',
+                      style: GoogleFonts.inter(
+                        fontSize: 11.5,
+                        color: const Color(0xFF7C2D12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const EditReligionScreen(),
+                  ),
+                ).then((_) => _loadData());
+              },
+              icon: const Icon(Icons.edit_note_rounded, size: 20),
+              label: Text(
+                'Fill My Astrology Details ✏️',
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF8B1E2D),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                elevation: 0,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -510,12 +996,38 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
           'Highest Education',
           _getLookupLabel(
             'education_levels',
-            widget.profile.highestEducationId,
+            _profile.highestEducationId,
           ),
         ),
         _buildRow(
           'College / University',
-          widget.profile.college ?? 'Not provided',
+          _profile.college ?? 'Not provided',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCareerSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle('Career & Work'),
+        _buildRow(
+          'Occupation',
+          _getLookupLabel('occupations', _profile.occupationId),
+        ),
+        _buildRow('Company Name', _profile.company ?? 'Not provided'),
+        _buildRow(
+          'Work Location',
+          _profile.workLocation ?? 'Not provided',
+        ),
+        if (_profile.workType != null)
+          _buildRow('Work Type', _profile.workType!),
+        if (_profile.careerPreference != null)
+          _buildRow('Career Outlook', _profile.careerPreference!),
+        _buildRow(
+          'Annual Income',
+          _getLookupLabel('annual_incomes', _profile.annualIncomeId),
         ),
       ],
     );
@@ -528,27 +1040,54 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
         _buildSectionTitle('Family Details'),
         _buildRow(
           'Family Type',
-          _getLookupLabel('family_types', widget.profile.familyTypeId),
+          _getLookupLabel('family_types', _profile.familyTypeId),
         ),
-        _buildRow('Father Name', widget.profile.fatherName ?? 'Not provided'),
+        if (_profile.familyValues != null)
+          _buildRow('Family Values', _profile.familyValues!),
+        _buildRow('Father Name', _profile.fatherName ?? 'Not provided'),
         _buildRow(
           'Father Occupation',
-          widget.profile.fatherOccupation ?? 'Not provided',
+          _profile.fatherOccupation ?? 'Not provided',
         ),
-        _buildRow('Mother Name', widget.profile.motherName ?? 'Not provided'),
+        _buildRow('Mother Name', _profile.motherName ?? 'Not provided'),
         _buildRow(
           'Mother Occupation',
-          widget.profile.motherOccupation ?? 'Not provided',
+          _profile.motherOccupation ?? 'Not provided',
         ),
         _buildRow(
           'No. of Brothers',
-          widget.profile.brothersCount?.toString() ?? 'Not provided',
+          _profile.brothersCount?.toString() ?? 'Not provided',
         ),
         _buildRow(
           'No. of Sisters',
-          widget.profile.sistersCount?.toString() ?? 'Not provided',
+          _profile.sistersCount?.toString() ?? 'Not provided',
         ),
-        _buildRow('Native Place', widget.profile.nativePlace ?? 'Not provided'),
+        _buildRow('Native Place', _profile.nativePlace ?? 'Not provided'),
+        if (_profile.familyDescription != null &&
+            _profile.familyDescription!.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              'About Family',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                color: const Color(0xFF9A8A7A),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
+            child: Text(
+              _profile.familyDescription!,
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                color: AppColors.textPrimary,
+                height: 1.5,
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -557,22 +1096,58 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionTitle('Habits'),
+        _buildSectionTitle('Habits & Lifestyle'),
         _buildRow(
           'Diet',
-          _getLookupLabel('food_preferences', widget.profile.foodPreferenceId),
+          _getLookupLabel('food_preferences', _profile.foodPreferenceId),
         ),
+        if (_profile.fitnessHabits != null)
+          _buildRow('Fitness Habits', _profile.fitnessHabits!),
+        if (_profile.personalityType != null)
+          _buildRow('Personality', _profile.personalityType!),
+        if (_profile.spiritualLevel != null)
+          _buildRow('Spiritual Level', _profile.spiritualLevel!),
         _buildRow(
           'Smoking',
-          _getLookupLabel('smoking_habits', widget.profile.smokingId),
+          _getLookupLabel('smoking_habits', _profile.smokingId),
         ),
         _buildRow(
           'Drinking',
-          _getLookupLabel('drinking_habits', widget.profile.drinkingId),
+          _getLookupLabel('drinking_habits', _profile.drinkingId),
         ),
-        if (widget.profile.hobbies != null &&
-            widget.profile.hobbies!.isNotEmpty) ...[
-          const SizedBox(height: 16),
+        if (_profile.culturalInterests != null &&
+            _profile.culturalInterests!.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              'Cultural & Traditional Interests',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                color: const Color(0xFF9A8A7A),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _profile.culturalInterests!
+                  .map(
+                    (c) => Chip(
+                      label: Text(c, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF6E1732))),
+                      backgroundColor: const Color(0xFFFBF4E9),
+                      side: const BorderSide(color: Color(0xFFE2D6C7)),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+        ],
+        if (_profile.hobbies != null &&
+            _profile.hobbies!.isNotEmpty) ...[
+          const SizedBox(height: 12),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Text(
@@ -588,7 +1163,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
             child: Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: widget.profile.hobbies!
+              children: _profile.hobbies!
                   .map(
                     (h) => Chip(
                       label: Text(h, style: GoogleFonts.inter(fontSize: 12)),
@@ -600,9 +1175,9 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
             ),
           ),
         ],
-        if (widget.profile.aboutMe != null &&
-            widget.profile.aboutMe!.isNotEmpty) ...[
-          const SizedBox(height: 16),
+        if (_profile.aboutMe != null &&
+            _profile.aboutMe!.isNotEmpty) ...[
+          const SizedBox(height: 12),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Text(
@@ -616,7 +1191,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
             child: Text(
-              widget.profile.aboutMe!,
+              _profile.aboutMe!,
               style: GoogleFonts.inter(
                 fontSize: 14,
                 color: AppColors.textPrimary,
@@ -629,55 +1204,94 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
     );
   }
 
-  Widget _buildCulturalSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionTitle('Cultural & Astrology'),
-        _buildRow(
-          'Mother Tongue',
-          _getLookupLabel('mother_tongues', widget.profile.motherTongueId),
-        ),
-        _buildRow('Caste', _getLookupLabel('castes', widget.profile.casteId)),
-        _buildRow('Sub-caste', widget.profile.subCaste ?? 'Not provided'),
-        _buildRow(
-          'Gothram',
-          _getLookupLabel('gothrams', widget.profile.gothramId),
-        ),
-        _buildRow('Pravara', widget.profile.pravara ?? 'Not provided'),
-        _buildRow(
-          'Veda Shakha',
-          _getLookupLabel('veda_shakhas', widget.profile.vedaShakhaId),
-        ),
-        _buildRow(
-          'Nakshatram',
-          _getLookupLabel('nakshatras', widget.profile.nakshatraId),
-        ),
-        _buildRow('Rashi', _getLookupLabel('rashis', widget.profile.rashiId)),
-        _buildRow('Pada', _getLookupLabel('padas', widget.profile.padaId)),
-        _buildRow('Kuja Dosham', widget.profile.kujaDosham ?? 'Not provided'),
-      ],
-    );
-  }
+  Widget _buildPreferencesSection() {
+    if (_partnerPreference == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionTitle('Partner Preferences'),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+            child: Text(
+              'Open to all compatible Brahmin profiles.',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                color: const Color(0xFF9A8A7A),
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
 
-  Widget _buildCareerSection() {
+    final p = _partnerPreference!;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionTitle('Career'),
+        _buildSectionTitle('Partner Preferences'),
         _buildRow(
-          'Occupation',
-          _getLookupLabel('occupations', widget.profile.occupationId),
-        ),
-        _buildRow('Company Name', widget.profile.company ?? 'Not provided'),
-        _buildRow(
-          'Work Location',
-          widget.profile.workLocation ?? 'Not provided',
+          'Age Range',
+          p.minAge != null && p.maxAge != null
+              ? '${p.minAge} - ${p.maxAge} years'
+              : 'Doesn\'t Matter',
         ),
         _buildRow(
-          'Annual Income',
-          _getLookupLabel('annual_incomes', widget.profile.annualIncomeId),
+          'Height Range',
+          p.minHeightInches != null && p.maxHeightInches != null
+              ? '${p.minHeightInches! ~/ 12}\'${p.minHeightInches! % 12}" - ${p.maxHeightInches! ~/ 12}\'${p.maxHeightInches! % 12}"'
+              : 'Doesn\'t Matter',
         ),
+        if (p.kujaDoshamPreference != null)
+          _buildRow('Kuja Dosham', p.kujaDoshamPreference!),
+        if (p.horoscopeMatchingRequired != null)
+          _buildRow('Horoscope Matching', p.horoscopeMatchingRequired!),
+        _buildRow(
+          'Marital Status',
+          _getLookupLabelsList('marital_statuses', p.preferredMaritalStatusIds),
+        ),
+        _buildRow(
+          'Mother Tongues',
+          _getLookupLabelsList('mother_tongues', p.preferredMotherTongueIds),
+        ),
+        _buildRow(
+          'Castes / Sub-castes',
+          _getLookupLabelsList('castes', p.preferredCasteIds),
+        ),
+        _buildRow(
+          'Dietary Habits',
+          _getLookupLabelsList('food_preferences', p.preferredFoodIds),
+        ),
+        if (p.preferredCountryIds != null && p.preferredCountryIds!.isNotEmpty)
+          _buildRow(
+            'Preferred Countries',
+            _getLookupLabelsList('countries', p.preferredCountryIds),
+          ),
+        if (p.marriageVision != null && p.marriageVision!.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              'Marriage Vision',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                color: const Color(0xFF9A8A7A),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
+            child: Text(
+              p.marriageVision!,
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                color: AppColors.textPrimary,
+                height: 1.5,
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -732,7 +1346,9 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
   Widget _buildBottomBar() {
     final user = SupabaseService.client.auth.currentUser;
     if (user == null) return const SizedBox.shrink();
-    final currentUserId = user.id;
+    final currentUserId = (_myProfile != null && _myProfile!.id.isNotEmpty)
+        ? _myProfile!.id
+        : user.id;
     final isSender = _currentInterest?.isSentByMe(currentUserId) ?? false;
     final status = _currentInterest?.status;
 
@@ -864,87 +1480,110 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
     }
 
     String buttonText = 'Send Interest';
-    IconData buttonIcon = Icons.favorite_rounded;
     Color buttonColor = AppColors.primary;
-    VoidCallback? action;
-
-    if (_currentInterest != null) {
-      if (status == 'pending') {
-        if (isSender) {
-          buttonText = 'Cancel Request';
-          buttonIcon = Icons.close_rounded;
-          buttonColor = Colors.grey.shade600;
-          action = () async {
-            setState(() => _isSendingInterest = true);
-            try {
-              await getIt<InterestService>().cancelInterest(
-                _currentInterest!.id,
-              );
-              await _loadData();
-            } catch (e) {
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      e is AppException
-                          ? e.message
-                          : 'Error cancelling request',
-                    ),
-                    backgroundColor: const Color(0xFFFF3B30),
-                  ),
-                );
-              }
-            } finally {
-              if (mounted) setState(() => _isSendingInterest = false);
-            }
-          };
+    IconData buttonIcon = Icons.favorite_border_rounded;
+    VoidCallback? action = () async {
+      setState(() => _isSendingInterest = true);
+      try {
+        await getIt<InterestService>().sendInterest(widget.profile.id);
+        await _loadData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Interest sent successfully!'),
+              backgroundColor: Color(0xFF34C759),
+            ),
+          );
         }
-      } else if (status == 'accepted') {
-        buttonText = 'Connected';
-        buttonIcon = Icons.check_circle;
-        buttonColor = const Color(0xFF2E7D32);
-        action = null; // Disabled
-      } else if (status == 'declined') {
-        buttonText = 'Declined';
-        buttonIcon = Icons.cancel;
-        buttonColor = const Color(0xFFC62828);
-        action = null; // Disabled
-      }
-    } else {
-      action = () async {
-        setState(() => _isSendingInterest = true);
-        try {
-          await getIt<InterestService>().sendInterest(widget.profile.id);
-          await _loadData();
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Interest sent successfully!'),
-                backgroundColor: Color(0xFF34C759),
-              ),
+      } catch (e) {
+        if (mounted) {
+          if (e is QuotaExceededException) {
+            QuotaExhaustedSheet.show(
+              context,
+              tier: e.tier,
+              limit: e.limit,
             );
-          }
-        } catch (e) {
-          if (mounted) {
+          } else {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  e is AppException
-                      ? e.message
-                      : 'Something went wrong. Please try again.',
+                  e is AppException ? e.message : 'Error sending interest',
                 ),
                 backgroundColor: const Color(0xFFFF3B30),
               ),
             );
           }
-        } finally {
-          if (mounted) setState(() => _isSendingInterest = false);
         }
-      };
+      } finally {
+        if (mounted) {
+          setState(() => _isSendingInterest = false);
+        }
+      }
+    };
+
+    if (_currentInterest != null) {
+      if (isSender) {
+        if (status == 'pending') {
+          buttonText = 'Interest Sent';
+          buttonColor = const Color(0xFFB58D3D);
+          buttonIcon = Icons.hourglass_empty_rounded;
+          action = null;
+        } else if (status == 'accepted') {
+          buttonText = 'Chat Now';
+          buttonColor = const Color(0xFF10B981);
+          buttonIcon = Icons.chat_bubble_rounded;
+          action = () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ChatConversationScreen(
+                  profileId: widget.profile.id,
+                  name: widget.profile.fullName,
+                  photoUrl: widget.profile.profilePhotoUrl,
+                  subcaste: widget.profile.subCaste,
+                  isVerified: widget.profile.isVerified,
+                  isOnline: _profile.isOnline,
+                ),
+              ),
+            );
+          };
+        } else if (status == 'declined') {
+          buttonText = 'Declined';
+          buttonColor = const Color(0xFF8E8E93);
+          buttonIcon = Icons.block_rounded;
+          action = null;
+        }
+      } else {
+        if (status == 'accepted') {
+          buttonText = 'Chat Now';
+          buttonColor = const Color(0xFF10B981);
+          buttonIcon = Icons.chat_bubble_rounded;
+          action = () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ChatConversationScreen(
+                  profileId: widget.profile.id,
+                  name: widget.profile.fullName,
+                  photoUrl: widget.profile.profilePhotoUrl,
+                  subcaste: widget.profile.subCaste,
+                  isVerified: widget.profile.isVerified,
+                  isOnline: _profile.isOnline,
+                ),
+              ),
+            );
+          };
+        } else if (status == 'declined') {
+          buttonText = 'Declined';
+          buttonColor = const Color(0xFF8E8E93);
+          buttonIcon = Icons.block_rounded;
+          action = null;
+        }
+      }
     }
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
       decoration: const BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -955,46 +1594,86 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
           ),
         ],
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton(
-              onPressed: (_isSendingInterest || action == null) ? null : action,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: buttonColor,
-                disabledBackgroundColor: buttonColor.withValues(alpha: 0.5),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(28),
+          // 1. View Contact Button
+          Expanded(
+            flex: 2,
+            child: SizedBox(
+              height: 52,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  ContactUnlockDialog.show(
+                    context,
+                    targetProfileId: widget.profile.id,
+                    targetProfileName: widget.profile.fullName,
+                  );
+                },
+                icon: const Icon(Icons.phone_outlined, size: 20),
+                label: Text(
+                  'Contact',
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-                elevation: 0,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF6E1732),
+                  side: const BorderSide(color: Color(0xFF6E1732), width: 1.5),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(26),
+                  ),
+                ),
               ),
-              child: _isSendingInterest
-                  ? const SizedBox(
-                      height: 24,
-                      width: 24,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    )
-                  : Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(buttonIcon, color: Colors.white),
-                        const SizedBox(width: 8),
-                        Text(
-                          buttonText,
-                          style: GoogleFonts.inter(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          // 2. Primary Interest Action Button
+          Expanded(
+            flex: 3,
+            child: SizedBox(
+              height: 52,
+              child: ElevatedButton(
+                onPressed: (_isSendingInterest || action == null) ? null : action,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: buttonColor,
+                  disabledBackgroundColor: buttonColor.withValues(alpha: 0.5),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(26),
+                  ),
+                  elevation: 0,
+                ),
+                child: _isSendingInterest
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
                         ),
-                      ],
-                    ),
+                      )
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(buttonIcon, color: Colors.white, size: 20),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              buttonText,
+                              style: GoogleFonts.inter(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
             ),
           ),
         ],
