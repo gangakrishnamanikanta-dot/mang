@@ -44,6 +44,10 @@ class _DiscoverTabState extends State<DiscoverTab> {
   int _currentOffset = 0;
   static const int _pageSize = 20;
 
+  // Cached identity & race-condition cancellation token
+  String? _cachedEffectiveUserId;
+  int _searchRequestId = 0;
+
   SubscriptionTier _userTier = SubscriptionTier.free;
 
   final Set<String> _shortlistedIds = {};
@@ -52,6 +56,11 @@ class _DiscoverTabState extends State<DiscoverTab> {
   // Dynamic subcastes from DB
   List<String> _subcasteChips = ['All'];
   bool _subcastesLoaded = false;
+
+  bool get _hasActiveFilters =>
+      (_selectedCity != null && _selectedCity!.trim().isNotEmpty) ||
+      (_selectedSubcaste != null && _selectedSubcaste != 'All') ||
+      (_ageRange.start > 18 || _ageRange.end < 60);
 
   @override
   void initState() {
@@ -83,12 +92,31 @@ class _DiscoverTabState extends State<DiscoverTab> {
   void _onSearchInputChanged(String val) {
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
-      setState(() => _searchQuery = val.trim());
-      _resetAndSearch();
+      if (mounted) {
+        setState(() => _searchQuery = val.trim());
+        _resetAndSearch();
+      }
     });
   }
 
   Future<void> _loadInitialData() async {
+    // Resolve user & guardian/candidate identity ONCE here
+    try {
+      String? userId = SupabaseService.client.auth.currentUser?.id;
+      if (userId != null) {
+        final myProf = await getIt<HomeService>().getMyProfile();
+        if (myProf?.accountType == 'guardian') {
+          final cand = await FamilyService.instance.getGuardianActiveCandidate();
+          if (cand != null && cand.candidateId.isNotEmpty) {
+            userId = cand.candidateId;
+          }
+        }
+      }
+      _cachedEffectiveUserId = userId;
+    } catch (e) {
+      debugPrint('[DiscoverTab identity resolution error]: $e');
+    }
+
     final results = await Future.wait([
       SubscriptionService.instance.getMyStatus(),
       _loadSubcastesFromDb(),
@@ -120,21 +148,11 @@ class _DiscoverTabState extends State<DiscoverTab> {
           _subcastesLoaded = true;
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[DiscoverTab sub_castes load error]: $e');
       if (mounted) {
         setState(() {
-          _subcasteChips = [
-            'All',
-            'Vaidiki Velanadu',
-            'Vaidiki Telaganya',
-            'Niyogi',
-            'Dravida',
-            'Hoysala Karnataka',
-            'Chitpavan',
-            'Deshastha',
-            'Iyer (Vadama)',
-            'Iyengar (Vadakalai)',
-          ];
+          _subcasteChips = ['All'];
           _subcastesLoaded = true;
         });
       }
@@ -158,21 +176,14 @@ class _DiscoverTabState extends State<DiscoverTab> {
   }
 
   Future<void> _performSearch({required int offset, required bool isReset}) async {
-    String? userId = SupabaseService.client.auth.currentUser?.id;
+    final int currentRequestId = ++_searchRequestId;
+    String? userId = _cachedEffectiveUserId ?? SupabaseService.client.auth.currentUser?.id;
     if (userId == null) {
       if (mounted) setState(() { _isLoading = false; _isFetchingMore = false; });
       return;
     }
 
     try {
-      final myProf = await getIt<HomeService>().getMyProfile();
-      if (myProf?.accountType == 'guardian') {
-        final cand = await FamilyService.instance.getGuardianActiveCandidate();
-        if (cand != null && cand.candidateId.isNotEmpty) {
-          userId = cand.candidateId;
-        }
-      }
-
       final subcasteFilter = (_selectedSubcaste == null || _selectedSubcaste == 'All')
           ? null
           : _selectedSubcaste;
@@ -192,6 +203,9 @@ class _DiscoverTabState extends State<DiscoverTab> {
           'p_offset': offset,
         },
       );
+
+      // Concurrency guard: if user initiated a newer query, drop this stale response
+      if (currentRequestId != _searchRequestId) return;
 
       final newProfiles = data is List ? List<Map<String, dynamic>>.from(data) : <Map<String, dynamic>>[];
 
@@ -214,7 +228,9 @@ class _DiscoverTabState extends State<DiscoverTab> {
       }
     } catch (e) {
       debugPrint('[DiscoverTab Error]: $e');
-      if (mounted) setState(() { _isLoading = false; _isFetchingMore = false; });
+      if (mounted && currentRequestId == _searchRequestId) {
+        setState(() { _isLoading = false; _isFetchingMore = false; });
+      }
     }
   }
 
@@ -254,13 +270,15 @@ class _DiscoverTabState extends State<DiscoverTab> {
     try {
       await SupabaseService.client.rpc('toggle_shortlist', params: {'p_target_id': profileId});
     } catch (_) {
-      setState(() {
-        if (isShortlisted) {
-          _shortlistedIds.add(profileId);
-        } else {
-          _shortlistedIds.remove(profileId);
-        }
-      });
+      if (mounted) {
+        setState(() {
+          if (isShortlisted) {
+            _shortlistedIds.add(profileId);
+          } else {
+            _shortlistedIds.remove(profileId);
+          }
+        });
+      }
     }
   }
 
@@ -314,17 +332,18 @@ class _DiscoverTabState extends State<DiscoverTab> {
       annualIncomeId: p['annual_income_id'] as int?,
       email: '',
       createdAt: p['created_at']?.toString() ?? '',
-      updatedAt: p['created_at']?.toString() ?? '',
+      updatedAt: p['updated_at']?.toString() ?? p['created_at']?.toString() ?? '',
     );
 
     Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileDetailScreen(profile: profile)));
   }
 
   void _showFilterModal() {
+    FocusScope.of(context).unfocus();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFFFF8F2),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -351,7 +370,7 @@ class _DiscoverTabState extends State<DiscoverTab> {
                   style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600)),
               RangeSlider(
                 values: _ageRange,
-                min: 18, max: 50, divisions: 32,
+                min: 18, max: 60, divisions: 42,
                 activeColor: AppColors.primary,
                 inactiveColor: const Color(0xFFEDE4DC),
                 labels: RangeLabels('${_ageRange.start.round()}', '${_ageRange.end.round()}'),
@@ -367,8 +386,9 @@ class _DiscoverTabState extends State<DiscoverTab> {
                 controller: _cityFilterController,
                 decoration: InputDecoration(
                   hintText: 'e.g. Hyderabad, Bangalore, Pune',
-                  filled: true, fillColor: const Color(0xFFF7F3EE),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                  filled: true, fillColor: Colors.white,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE5DDD5))),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE5DDD5))),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 ),
                 onChanged: (val) => _selectedCity = val,
@@ -378,20 +398,25 @@ class _DiscoverTabState extends State<DiscoverTab> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFFD4AF37)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
                       onPressed: () {
                         setModalState(() {
                           _selectedCity = null;
                           _cityFilterController.clear();
-                          _ageRange = const RangeValues(20, 36);
+                          _ageRange = const RangeValues(18, 60);
                         });
                         setState(() {
                           _selectedCity = null;
-                          _ageRange = const RangeValues(20, 36);
+                          _ageRange = const RangeValues(18, 60);
                         });
                         Navigator.pop(ctx);
                         _resetAndSearch();
                       },
-                      child: const Text('Reset'),
+                      child: Text('Reset', style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: const Color(0xFF8C6D23))),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -402,6 +427,7 @@ class _DiscoverTabState extends State<DiscoverTab> {
                         backgroundColor: AppColors.primary,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 0,
                       ),
                       onPressed: () {
                         Navigator.pop(ctx);
@@ -420,17 +446,29 @@ class _DiscoverTabState extends State<DiscoverTab> {
     );
   }
 
+  void _clearAllFilters() {
+    setState(() {
+      _searchController.clear();
+      _searchQuery = '';
+      _selectedSubcaste = null;
+      _selectedCity = null;
+      _cityFilterController.clear();
+      _ageRange = const RangeValues(18, 60);
+    });
+    _resetAndSearch();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFFFF8F2),
-      // ✅ Dismiss keyboard on tap anywhere on scaffold
+      // Dismiss keyboard on tap anywhere on scaffold
       body: GestureDetector(
         onTap: () => FocusScope.of(context).unfocus(),
         child: SafeArea(
           child: Column(
             children: [
-              // ── Search Bar ────────────────────────────────────────────────
+              // Search Bar
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                 child: Row(
@@ -472,13 +510,13 @@ class _DiscoverTabState extends State<DiscoverTab> {
                       child: Container(
                         width: 48, height: 48,
                         decoration: BoxDecoration(
-                          color: (_selectedCity != null && _selectedCity!.isNotEmpty) ? AppColors.primary : Colors.white,
+                          color: _hasActiveFilters ? AppColors.primary : Colors.white,
                           borderRadius: BorderRadius.circular(24),
                           boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 2))],
                         ),
                         child: Icon(
                           Icons.tune_rounded,
-                          color: (_selectedCity != null && _selectedCity!.isNotEmpty) ? Colors.white : const Color(0xFF5A4D41),
+                          color: _hasActiveFilters ? Colors.white : const Color(0xFF5A4D41),
                           size: 22,
                         ),
                       ),
@@ -487,13 +525,13 @@ class _DiscoverTabState extends State<DiscoverTab> {
                 ),
               ),
 
-              // ── Dynamic Subcaste Chips ─────────────────────────────────────
+              // Dynamic Subcaste Chips
               _buildSubcasteChips(),
 
-              // ── Results Banner ─────────────────────────────────────────────
+              // Results Banner
               _buildResultsBanner(),
 
-              // ── Profile List with Infinite Scroll ─────────────────────────
+              // Profile List with Infinite Scroll
               Expanded(
                 child: _isLoading
                     ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
@@ -525,6 +563,7 @@ class _DiscoverTabState extends State<DiscoverTab> {
                 return ChoiceChip(
                   label: Text(subcaste),
                   selected: isSelected,
+                  showCheckmark: false,
                   selectedColor: AppColors.primary,
                   backgroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
@@ -546,6 +585,10 @@ class _DiscoverTabState extends State<DiscoverTab> {
   }
 
   Widget _buildResultsBanner() {
+    if (_isLoading) {
+      return const SizedBox(height: 24);
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Row(
@@ -570,27 +613,25 @@ class _DiscoverTabState extends State<DiscoverTab> {
   }
 
   Widget _buildProfilesList() {
-    final itemCount = _profiles.length
-        + (_isFetchingMore ? 1 : 0)
-        + (!_hasMore && _profiles.length >= 10 && _userTier == SubscriptionTier.free ? 1 : 0);
+    final showPaywall = !_hasMore && _profiles.length >= 10 && _userTier == SubscriptionTier.free;
+    final itemCount = _profiles.length + (_isFetchingMore ? 1 : 0) + (showPaywall ? 1 : 0);
 
     return ListView.builder(
       controller: _scrollController,
-      // ✅ Dismiss keyboard on drag/scroll
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       itemCount: itemCount,
       itemBuilder: (context, index) {
-        // Loading spinner for next page
-        if (index == _profiles.length && _isFetchingMore) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 20),
-            child: Center(child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2)),
-          );
-        }
-        // Paywall card for free tier
-        if (index == _profiles.length && !_hasMore && _userTier == SubscriptionTier.free) {
-          return _buildTierPaywallCard();
+        if (index == _profiles.length) {
+          if (_isFetchingMore) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Center(child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2)),
+            );
+          }
+          if (showPaywall) {
+            return _buildTierPaywallCard();
+          }
         }
         if (index >= _profiles.length) return const SizedBox.shrink();
 
@@ -602,16 +643,26 @@ class _DiscoverTabState extends State<DiscoverTab> {
   }
 
   Widget _buildProfileCard(Map<String, dynamic> p, bool isShortlisted, bool isInterestSent) {
-    final name = p['full_name'] ?? 'Member';
-    final age = p['age'] ?? 24;
-    final city = p['city'] ?? 'India';
-    final subcaste = p['sub_caste'] ?? 'Brahmin';
-    final education = p['highest_education'] ?? 'Graduate';
-    final occupation = p['occupation'] ?? 'Professional';
+    final name = p['full_name']?.toString() ?? 'Member';
+    final age = p['age'] as int?;
+    final city = p['city']?.toString().trim();
+    final subcaste = p['sub_caste']?.toString().trim();
+    final education = p['highest_education']?.toString().trim();
+    final occupation = p['occupation']?.toString().trim();
     final photoUrl = p['profile_photo_url'] as String?;
     final isVerified = p['is_verified'] == true;
-    final score = p['match_score'] ?? 80;
+    final score = p['match_score'] as int?;
     final profileId = p['id']?.toString() ?? '';
+
+    final List<String> line1Parts = [];
+    if (age != null && age > 0) line1Parts.add('$age yrs');
+    if (subcaste != null && subcaste.isNotEmpty) line1Parts.add(subcaste);
+    final line1 = line1Parts.join(' • ');
+
+    final List<String> line2Parts = [];
+    if (education != null && education.isNotEmpty) line2Parts.add(education);
+    if (occupation != null && occupation.isNotEmpty) line2Parts.add(occupation);
+    final line2 = line2Parts.join(' • ');
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -646,9 +697,12 @@ class _DiscoverTabState extends State<DiscoverTab> {
                         Row(
                           children: [
                             Flexible(
-                              child: Text(name,
-                                  style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.bold, color: const Color(0xFF2B2118)),
-                                  maxLines: 1, overflow: TextOverflow.ellipsis),
+                              child: Text(
+                                name,
+                                style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.bold, color: const Color(0xFF2B2118)),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                             if (isVerified) ...[
                               const SizedBox(width: 4),
@@ -656,31 +710,50 @@ class _DiscoverTabState extends State<DiscoverTab> {
                             ],
                           ],
                         ),
-                        const SizedBox(height: 3),
-                        Text('$age yrs • $subcaste',
-                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF5A4D41), fontWeight: FontWeight.w500)),
-                        Text('$education • $occupation',
+                        if (line1.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            line1,
+                            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF5A4D41), fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                        if (line2.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            line2,
                             style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF8C7B6E)),
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
-                        Text('📍 $city',
-                            style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF8C7B6E))),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                        if (city != null && city.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            '📍 $city',
+                            style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF8C7B6E)),
+                          ),
+                        ],
                       ],
                     ),
                   ),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFECFDF5),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFFA7F3D0)),
+                      if (score != null && score > 0) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFECFDF5),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFA7F3D0)),
+                          ),
+                          child: Text(
+                            '$score% Match',
+                            style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF065F46)),
+                          ),
                         ),
-                        child: Text('$score% Match',
-                            style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF065F46))),
-                      ),
-                      const SizedBox(height: 8),
+                        const SizedBox(height: 8),
+                      ],
                       GestureDetector(
                         onTap: () => _toggleShortlist(profileId),
                         child: Icon(
@@ -780,17 +853,38 @@ class _DiscoverTabState extends State<DiscoverTab> {
 
   Widget _buildEmptyState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.search_off_rounded, size: 64, color: Colors.grey.shade400),
-          const SizedBox(height: 12),
-          Text('No Profiles Found',
-              style: GoogleFonts.playfairDisplay(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 6),
-          Text('Try widening your age, city or subcaste filters.',
-              style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade600)),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.search_off_rounded, size: 64, color: Colors.grey.shade400),
+            const SizedBox(height: 12),
+            Text(
+              'No Profiles Found',
+              style: GoogleFonts.playfairDisplay(fontSize: 18, fontWeight: FontWeight.bold, color: const Color(0xFF2B2118)),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Try widening your age, city or subcaste filters.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade600),
+            ),
+            if (_hasActiveFilters || _searchQuery.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Clear All Filters'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.primary),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
+                onPressed: _clearAllFilters,
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

@@ -31,6 +31,10 @@ class ProfileDetailScreen extends StatefulWidget {
 }
 
 class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
+  final ProfileService _profileService = ProfileService();
+  final LookupService _lookupService = LookupService();
+  final InterestService _interestService = getIt<InterestService>();
+
   late Profile _profile;
   PartnerPreference? _partnerPreference;
   Map<String, List<LookupOption>> _lookups = {};
@@ -41,6 +45,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
   Profile? _myProfile;
   bool _hasSentHoroscopeRequest = false;
   bool _isSendingHoroscopeRequest = false;
+  int? _gunaMilanScore;
 
   final ScrollController _scrollController = ScrollController();
   final ScrollController _navScrollController = ScrollController();
@@ -73,9 +78,6 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
   }
 
   Future<void> _loadData() async {
-    final lookupService = LookupService();
-    final interestService = getIt<InterestService>();
-
     try {
       final myProf = await HomeService.instance.getMyProfile();
       String? candidateId;
@@ -84,7 +86,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
         final cand = await FamilyService.instance.getGuardianActiveCandidate();
         candidateId = cand?.candidateId;
         if (candidateId != null && candidateId.isNotEmpty) {
-          final candProf = await ProfileService().getProfileById(candidateId);
+          final candProf = await _profileService.getProfileById(candidateId);
           if (candProf != null) {
             effectiveMyProfile = candProf;
           }
@@ -92,26 +94,30 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
       }
 
       final results = await Future.wait([
-        lookupService.fetchAllProfileLookups(),
-        interestService.getInterestStatus(
+        _lookupService.fetchAllProfileLookups(),
+        _interestService.getInterestStatus(
           widget.profile.id,
           onBehalfOf: candidateId,
         ),
-        ProfileService().getProfileById(widget.profile.id),
-        ProfileService().getPartnerPreferencesByProfileId(widget.profile.id),
+        _profileService.getProfileById(widget.profile.id),
+        _profileService.getPartnerPreferencesByProfileId(widget.profile.id),
         HomeService.instance.hasSentHoroscopeRequest(widget.profile.id),
       ]);
 
       if (mounted) {
+        final fetchedProfile = results[2] as Profile?;
+        _myProfile = effectiveMyProfile;
+        if (fetchedProfile != null) {
+          _profile = fetchedProfile;
+        }
+        final calculatedScore = _calculateGunaMilanScore();
+
         setState(() {
           _lookups = results[0] as Map<String, List<LookupOption>>;
           _currentInterest = results[1] as Interest?;
-          if (results[2] != null) {
-            _profile = results[2] as Profile;
-          }
           _partnerPreference = results[3] as PartnerPreference?;
-          _myProfile = effectiveMyProfile;
           _hasSentHoroscopeRequest = results[4] as bool? ?? false;
+          _gunaMilanScore = calculatedScore;
           _isLoading = false;
         });
       }
@@ -152,6 +158,17 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
           ),
         ),
       );
+    }
+  }
+
+  String _formatDateOfBirth(String? rawDob) {
+    if (rawDob == null || rawDob.isEmpty) return 'Not provided';
+    try {
+      final dt = DateTime.parse(rawDob);
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
+    } catch (_) {
+      return rawDob;
     }
   }
 
@@ -407,6 +424,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
             icon: const Icon(Icons.family_restroom_rounded, color: Colors.white),
             tooltip: 'Discuss with Family',
             onPressed: () {
+              FocusScope.of(context).unfocus();
               DiscussWithFamilySheet.show(
                 context: context,
                 targetProfileId: _profile.id,
@@ -426,6 +444,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
           child: IconButton(
             icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
             onPressed: () {
+              FocusScope.of(context).unfocus();
               SafetyActionSheet.show(
                 context,
                 profileId: _profile.id,
@@ -444,6 +463,10 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
                 ? Image.network(
                     _profile.profilePhotoUrl!,
                     fit: BoxFit.cover,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return _buildImageFallback();
+                    },
                     errorBuilder: (context, error, stackTrace) =>
                         _buildImageFallback(),
                   )
@@ -540,6 +563,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
     return SliverPersistentHeader(
       pinned: true,
       delegate: _SectionHeaderDelegate(
+        activeIndex: _activeSectionIndex,
         child: Container(
           color: const Color(0xFFFFF8F2),
           child: Column(
@@ -615,8 +639,8 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
           _buildRow('Profile Created For', _profile.createdFor!),
         _buildRow('Full Name', _profile.fullName),
         _buildRow('Gender', _profile.gender ?? 'Not provided'),
-        if (_profile.dateOfBirth != null)
-          _buildRow('Date of Birth', _profile.dateOfBirth!),
+        if (_profile.dateOfBirth != null && _profile.dateOfBirth!.isNotEmpty)
+          _buildRow('Date of Birth', _formatDateOfBirth(_profile.dateOfBirth)),
         _buildRow(
           'Height',
           _profile.heightInches != null
@@ -671,7 +695,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
           _buildRow('Time of Birth', _profile.timeOfBirth!),
         if (_profile.placeOfBirth != null && _profile.placeOfBirth!.isNotEmpty)
           _buildRow('Place of Birth', _profile.placeOfBirth!),
-        _buildRow('Kuja Dosham', _profile.kujaDosham ?? (_profile.isManglik == true ? 'Yes' : 'No')),
+        _buildRow('Kuja Dosham', _profile.kujaDosham ?? (_profile.isManglik != null ? (_profile.isManglik! ? 'Yes' : 'No') : 'Not Specified')),
         if (_profile.kuladevata != null)
           _buildRow('Kuladevata', _profile.kuladevata!),
         if (_profile.sandhyavandanam != null)
@@ -699,21 +723,57 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
     final isCandidateMissing =
         _profile.rashiId == null || _profile.nakshatraId == null;
 
-    final gunaScore = _calculateGunaMilanScore();
+    final gunaScore = _gunaMilanScore;
     final isComplete = !isUserMissing && !isCandidateMissing && gunaScore != null;
 
     if (isComplete) {
-      final isUttama = gunaScore >= 28;
+      final String tierLabel;
+      final String tierDescription;
+      final Color tierColor;
+      final Color tierBgColor;
+      final Color tierBorderColor;
+      final IconData tierIcon;
+
+      if (gunaScore >= 33) {
+        tierLabel = 'Ati-Uttama Compatibility 🌟';
+        tierDescription = 'Exceptional, divine alignment across all 8 Vedic Koots for auspicious marriage.';
+        tierColor = const Color(0xFFB58D3D);
+        tierBgColor = const Color(0xFFFFF9EE);
+        tierBorderColor = const Color(0xFFC99A4B);
+        tierIcon = Icons.flare_rounded;
+      } else if (gunaScore >= 25) {
+        tierLabel = 'Uttama Compatibility ✨';
+        tierDescription = 'Highly auspicious horoscope harmony for traditional Vedic marriage.';
+        tierColor = const Color(0xFF065F46);
+        tierBgColor = const Color(0xFFECFDF5);
+        tierBorderColor = const Color(0xFFA7F3D0);
+        tierIcon = Icons.auto_awesome_rounded;
+      } else if (gunaScore >= 18) {
+        tierLabel = 'Madhyama Compatibility (Acceptable)';
+        tierDescription = 'Acceptable alignment across canonical Vedic Koots.';
+        tierColor = const Color(0xFFB45309);
+        tierBgColor = const Color(0xFFFFFBEB);
+        tierBorderColor = const Color(0xFFFDE68A);
+        tierIcon = Icons.check_circle_outline_rounded;
+      } else {
+        tierLabel = 'Low Compatibility / Varjya (Prohibited)';
+        tierDescription = 'Challenging Ashta-Koota harmony. Traditional Vedic principles advise caution or remedial consultation.';
+        tierColor = const Color(0xFF8B1E2D);
+        tierBgColor = const Color(0xFFFDF2F2);
+        tierBorderColor = const Color(0xFFFECACA);
+        tierIcon = Icons.warning_amber_rounded;
+      }
+
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFFFFF9EE),
+          color: tierBgColor,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFC99A4B).withValues(alpha: 0.5), width: 1.2),
+          border: Border.all(color: tierBorderColor.withValues(alpha: 0.6), width: 1.2),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFFC99A4B).withValues(alpha: 0.08),
+              color: tierBorderColor.withValues(alpha: 0.1),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -729,13 +789,13 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
                   height: 44,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0xFFC99A4B)),
-                    color: const Color(0xFF4A121A),
+                    border: Border.all(color: tierBorderColor),
+                    color: tierBgColor,
                   ),
-                  child: const Center(
+                  child: Center(
                     child: Icon(
-                      Icons.flare_rounded,
-                      color: Color(0xFFF5B759),
+                      tierIcon,
+                      color: tierColor,
                       size: 24,
                     ),
                   ),
@@ -768,11 +828,11 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
                         ),
                       ),
                       Text(
-                        isUttama ? 'Uttama Compatibility ✨' : 'Good Compatibility',
+                        tierLabel,
                         style: GoogleFonts.inter(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w700,
-                          color: isUttama ? const Color(0xFF2E7D32) : const Color(0xFFC99A4B),
+                          color: tierColor,
                         ),
                       ),
                     ],
@@ -782,9 +842,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
             ),
             const SizedBox(height: 10),
             Text(
-              isUttama
-                  ? 'Highly auspicious horoscope harmony for traditional Vedic marriage.'
-                  : 'Favorable alignment across canonical Vedic Koots.',
+              tierDescription,
               style: GoogleFonts.inter(
                 fontSize: 12,
                 color: const Color(0xFF6B5E55),
@@ -957,12 +1015,21 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
             height: 44,
             child: ElevatedButton.icon(
               onPressed: () {
+                FocusScope.of(context).unfocus();
                 Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (_) => const EditReligionScreen(),
                   ),
-                ).then((_) => _loadData());
+                ).then((_) async {
+                  final updatedMyProf = await HomeService.instance.getMyProfile();
+                  if (mounted && updatedMyProf != null) {
+                    setState(() {
+                      _myProfile = updatedMyProf;
+                      _gunaMilanScore = _calculateGunaMilanScore();
+                    });
+                  }
+                });
               },
               icon: const Icon(Icons.edit_note_rounded, size: 20),
               label: Text(
@@ -1343,6 +1410,117 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
     );
   }
 
+  void _openChatScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatConversationScreen(
+          profileId: widget.profile.id,
+          name: widget.profile.fullName,
+          photoUrl: widget.profile.profilePhotoUrl,
+          subcaste: widget.profile.subCaste,
+          isVerified: widget.profile.isVerified,
+          isOnline: _profile.isOnline,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleDeclineInterest() async {
+    if (_currentInterest == null) return;
+    setState(() => _isSendingInterest = true);
+    try {
+      await _interestService.declineInterest(_currentInterest!.id);
+      await _loadData();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is AppException ? e.message : 'Error declining interest',
+            ),
+            backgroundColor: const Color(0xFFFF3B30),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSendingInterest = false);
+      }
+    }
+  }
+
+  Future<void> _handleAcceptInterest() async {
+    if (_currentInterest == null) return;
+    setState(() => _isSendingInterest = true);
+    try {
+      await _interestService.acceptInterest(_currentInterest!.id);
+      await _loadData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Interest accepted!'),
+            backgroundColor: Color(0xFF34C759),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is AppException ? e.message : 'Error accepting interest',
+            ),
+            backgroundColor: const Color(0xFFFF3B30),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSendingInterest = false);
+      }
+    }
+  }
+
+  Future<void> _handleSendInterest() async {
+    setState(() => _isSendingInterest = true);
+    try {
+      await _interestService.sendInterest(widget.profile.id);
+      await _loadData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Interest sent successfully!'),
+            backgroundColor: Color(0xFF34C759),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        if (e is QuotaExceededException) {
+          QuotaExhaustedSheet.show(
+            context,
+            tier: e.tier,
+            limit: e.limit,
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                e is AppException ? e.message : 'Error sending interest',
+              ),
+              backgroundColor: const Color(0xFFFF3B30),
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSendingInterest = false);
+      }
+    }
+  }
+
   Widget _buildBottomBar() {
     final user = SupabaseService.client.auth.currentUser;
     if (user == null) return const SizedBox.shrink();
@@ -1369,34 +1547,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: _isSendingInterest
-                    ? null
-                    : () async {
-                        setState(() => _isSendingInterest = true);
-                        try {
-                          await getIt<InterestService>().declineInterest(
-                            _currentInterest!.id,
-                          );
-                          await _loadData();
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  e is AppException
-                                      ? e.message
-                                      : 'Error declining interest',
-                                ),
-                                backgroundColor: const Color(0xFFFF3B30),
-                              ),
-                            );
-                          }
-                        } finally {
-                          if (mounted) {
-                            setState(() => _isSendingInterest = false);
-                          }
-                        }
-                      },
+                onPressed: _isSendingInterest ? null : _handleDeclineInterest,
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   side: const BorderSide(color: Color(0xFFC62828)),
@@ -1417,42 +1568,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
             const SizedBox(width: 16),
             Expanded(
               child: ElevatedButton(
-                onPressed: _isSendingInterest
-                    ? null
-                    : () async {
-                        setState(() => _isSendingInterest = true);
-                        try {
-                          await getIt<InterestService>().acceptInterest(
-                            _currentInterest!.id,
-                          );
-                          await _loadData();
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Interest accepted!'),
-                                backgroundColor: Color(0xFF34C759),
-                              ),
-                            );
-                          }
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  e is AppException
-                                      ? e.message
-                                      : 'Error accepting interest',
-                                ),
-                                backgroundColor: const Color(0xFFFF3B30),
-                              ),
-                            );
-                          }
-                        } finally {
-                          if (mounted) {
-                            setState(() => _isSendingInterest = false);
-                          }
-                        }
-                      },
+                onPressed: _isSendingInterest ? null : _handleAcceptInterest,
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   backgroundColor: AppColors.primary,
@@ -1482,103 +1598,24 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
     String buttonText = 'Send Interest';
     Color buttonColor = AppColors.primary;
     IconData buttonIcon = Icons.favorite_border_rounded;
-    VoidCallback? action = () async {
-      setState(() => _isSendingInterest = true);
-      try {
-        await getIt<InterestService>().sendInterest(widget.profile.id);
-        await _loadData();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Interest sent successfully!'),
-              backgroundColor: Color(0xFF34C759),
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          if (e is QuotaExceededException) {
-            QuotaExhaustedSheet.show(
-              context,
-              tier: e.tier,
-              limit: e.limit,
-            );
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  e is AppException ? e.message : 'Error sending interest',
-                ),
-                backgroundColor: const Color(0xFFFF3B30),
-              ),
-            );
-          }
-        }
-      } finally {
-        if (mounted) {
-          setState(() => _isSendingInterest = false);
-        }
-      }
-    };
+    VoidCallback? action = _handleSendInterest;
 
     if (_currentInterest != null) {
-      if (isSender) {
-        if (status == 'pending') {
-          buttonText = 'Interest Sent';
-          buttonColor = const Color(0xFFB58D3D);
-          buttonIcon = Icons.hourglass_empty_rounded;
-          action = null;
-        } else if (status == 'accepted') {
-          buttonText = 'Chat Now';
-          buttonColor = const Color(0xFF10B981);
-          buttonIcon = Icons.chat_bubble_rounded;
-          action = () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ChatConversationScreen(
-                  profileId: widget.profile.id,
-                  name: widget.profile.fullName,
-                  photoUrl: widget.profile.profilePhotoUrl,
-                  subcaste: widget.profile.subCaste,
-                  isVerified: widget.profile.isVerified,
-                  isOnline: _profile.isOnline,
-                ),
-              ),
-            );
-          };
-        } else if (status == 'declined') {
-          buttonText = 'Declined';
-          buttonColor = const Color(0xFF8E8E93);
-          buttonIcon = Icons.block_rounded;
-          action = null;
-        }
-      } else {
-        if (status == 'accepted') {
-          buttonText = 'Chat Now';
-          buttonColor = const Color(0xFF10B981);
-          buttonIcon = Icons.chat_bubble_rounded;
-          action = () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ChatConversationScreen(
-                  profileId: widget.profile.id,
-                  name: widget.profile.fullName,
-                  photoUrl: widget.profile.profilePhotoUrl,
-                  subcaste: widget.profile.subCaste,
-                  isVerified: widget.profile.isVerified,
-                  isOnline: _profile.isOnline,
-                ),
-              ),
-            );
-          };
-        } else if (status == 'declined') {
-          buttonText = 'Declined';
-          buttonColor = const Color(0xFF8E8E93);
-          buttonIcon = Icons.block_rounded;
-          action = null;
-        }
+      if (status == 'pending') {
+        buttonText = 'Interest Sent';
+        buttonColor = const Color(0xFFB58D3D);
+        buttonIcon = Icons.hourglass_empty_rounded;
+        action = null;
+      } else if (status == 'accepted') {
+        buttonText = 'Chat Now';
+        buttonColor = const Color(0xFF10B981);
+        buttonIcon = Icons.chat_bubble_rounded;
+        action = _openChatScreen;
+      } else if (status == 'declined') {
+        buttonText = 'Declined';
+        buttonColor = const Color(0xFF8E8E93);
+        buttonIcon = Icons.block_rounded;
+        action = null;
       }
     }
 
@@ -1603,6 +1640,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
               height: 52,
               child: OutlinedButton.icon(
                 onPressed: () {
+                  FocusScope.of(context).unfocus();
                   HapticFeedback.selectionClick();
                   ContactUnlockDialog.show(
                     context,
@@ -1684,8 +1722,9 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> {
 
 class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
   final Widget child;
+  final int activeIndex;
 
-  _SectionHeaderDelegate({required this.child});
+  _SectionHeaderDelegate({required this.child, required this.activeIndex});
 
   @override
   double get minExtent => 60.0;
@@ -1704,6 +1743,6 @@ class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   bool shouldRebuild(covariant _SectionHeaderDelegate oldDelegate) {
-    return true;
+    return oldDelegate.activeIndex != activeIndex || oldDelegate.child != child;
   }
 }
