@@ -162,6 +162,7 @@ class _HomeTabState extends State<HomeTab> with RouteAware {
   }
 
   void _showGunaMilanSheet(BuildContext context, {MatchResult? candidateMatch}) {
+    FocusScope.of(context).unfocus();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,

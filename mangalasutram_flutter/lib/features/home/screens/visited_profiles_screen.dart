@@ -445,7 +445,7 @@ class _VisitedProfilesScreenState extends State<VisitedProfilesScreen>
       itemBuilder: (context, index) {
         final data = _visited[index];
         final profile = Profile.fromJson(data);
-        final score = (data['match_score'] as num?)?.round() ?? 75;
+        final score = (data['match_score'] as num?)?.round();
         final isBlurred = data['is_blurred'] == true;
         return _GridProfileCard(
           profile: profile,
@@ -459,7 +459,7 @@ class _VisitedProfilesScreenState extends State<VisitedProfilesScreen>
 
 class _GridProfileCard extends StatelessWidget {
   final Profile profile;
-  final int matchScore;
+  final int? matchScore;
   final bool isBlurred;
 
   const _GridProfileCard({
@@ -471,6 +471,7 @@ class _GridProfileCard extends StatelessWidget {
   int get _age => profile.computedAge;
 
   void _showUpgradeSheet(BuildContext context) {
+    FocusScope.of(context).unfocus();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -596,16 +597,20 @@ class _GridProfileCard extends StatelessWidget {
           children: [
             if (profile.profilePhotoUrl != null &&
                 profile.profilePhotoUrl!.isNotEmpty)
-              ImageFiltered(
-                imageFilter: isBlurred
-                    ? ImageFilter.blur(sigmaX: 12, sigmaY: 12)
-                    : ImageFilter.blur(sigmaX: 0, sigmaY: 0),
-                child: Image.network(
-                  profile.profilePhotoUrl!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => _buildPlaceholder(),
-                ),
-              )
+              isBlurred
+                  ? ImageFiltered(
+                      imageFilter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                      child: Image.network(
+                        profile.profilePhotoUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => _buildPlaceholder(),
+                      ),
+                    )
+                  : Image.network(
+                      profile.profilePhotoUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => _buildPlaceholder(),
+                    )
             else
               _buildPlaceholder(),
 
@@ -625,30 +630,32 @@ class _GridProfileCard extends StatelessWidget {
               ),
             ),
 
-            // Top Match Pill
-            Positioned(
-              top: 10,
-              right: 10,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.55),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: const Color(0xFFC99A4B).withValues(alpha: 0.6),
-                    width: 0.8,
+            // Top Match Pill — only shown when a real score exists
+            if (matchScore != null && matchScore! > 0)
+              Positioned(
+                top: 10,
+                right: 10,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: const Color(0xFFC99A4B).withValues(alpha: 0.6),
+                      width: 0.8,
+                    ),
                   ),
-                ),
-                child: Text(
-                  '$matchScore% Match',
-                  style: GoogleFonts.inter(
-                    color: const Color(0xFFF5D487),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
+                  child: Text(
+                    '$matchScore% Match',
+                    style: GoogleFonts.inter(
+                      color: const Color(0xFFF5D487),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
-            ),
 
             if (isBlurred)
               Center(
