@@ -1,5 +1,7 @@
 # Mangalasutram Project Rules & Directives
 
+> **Authoritative Specification Reference**: All engineering, UI/UX, and backend standards defined in [`ENGINEERING_RULES.md`](./ENGINEERING_RULES.md) are strictly binding on all agents, subagents, and tools.
+
 ## 1. Goal Guardrail & Anti-Drift Rule (CRITICAL)
 - **Stay on the Main Plot**: Always keep the project focused on the core goal: building and launching a production-grade, luxury matrimonial app (*Mangalasutram*).
 - **Proactive Warning on Scope Creep**: If the user or agent starts drifting into endless micro-tweaking loops, unnecessary side features, or non-MVP tangents that delay the launch, **immediately warn the user and redirect focus back to the core milestone**.
@@ -25,4 +27,3 @@
 
 ## 4. Communication & Truth Mandate (CRITICAL)
 - **Brutal & Honest Truth Always**: Never sugarcoat, flatter, or pretend something works when it has architectural or functional flaws. Always provide raw, objective, transparent engineering realities, tradeoffs, and technical truth without hesitation.
-

@@ -12,6 +12,7 @@ import 'widgets/auth_background.dart';
 import '../../../core/di.dart';
 import '../services/auth_service.dart';
 import '../services/supabase_service.dart';
+import '../services/msg91_otp_service.dart';
 import '../../../core/exceptions/app_exception.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -149,18 +150,32 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final formattedPhone = '+91$cleanPhone';
       try {
-        await SupabaseService.client.auth
-            .signInWithOtp(phone: formattedPhone)
+        final otpResult = await Msg91OtpService.instance
+            .sendOtp(cleanPhone)
             .timeout(const Duration(seconds: 15));
+        if (!otpResult.isSuccess) {
+          _showError(otpResult.message);
+          if (mounted) setState(() => _isSubmitting = false);
+          return;
+        }
+
         if (!mounted) return;
         Navigator.pushNamed(
           context,
           '/otp-verification',
-          arguments: {'phone': formattedPhone, 'purpose': 'login'},
+          arguments: {
+            'phone': formattedPhone,
+            'clean_phone': cleanPhone,
+            'req_id': otpResult.reqId,
+            'purpose': 'login',
+          },
         );
-      } on AuthException catch (e) {
-        _showError(_friendlyAuthMessage(e.message));
-      } catch (_) {
+      } on SocketException {
+        _showError('Cannot connect to server. Please check your internet connection.');
+      } on TimeoutException {
+        _showError('SMS request timed out. Please try again.');
+      } catch (e) {
+        debugPrint('[Login Phone Error]: $e');
         _showError('Failed to send OTP. Please try again.');
       }
     }

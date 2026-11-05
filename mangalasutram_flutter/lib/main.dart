@@ -205,12 +205,14 @@ class MangalasutramApp extends StatelessWidget {
                 String? password;
                 String purpose = 'signup';
                 bool isPhone = false;
+                String? reqId;
 
                 if (args is Map) {
                   contactInfo = args['email'] ?? args['phone'] ?? '';
                   password = args['password'];
                   purpose = args['purpose'] ?? 'signup';
                   isPhone = args['phone'] != null;
+                  reqId = args['req_id'];
                 } else if (args is String) {
                   contactInfo = args;
                 }
@@ -220,6 +222,7 @@ class MangalasutramApp extends StatelessWidget {
                   password: password,
                   purpose: purpose,
                   isPhone: isPhone,
+                  reqId: reqId,
                 );
               },
               '/forgot-password': (context) => const ForgotPasswordScreen(),

@@ -8,6 +8,7 @@ import '../../../constants/theme.dart';
 import '../../../shared/widgets/scale_button.dart';
 import 'widgets/auth_background.dart';
 import '../services/supabase_service.dart';
+import '../services/msg91_otp_service.dart';
 import '../providers/auth_provider.dart';
 import '../../family/services/family_service.dart';
 import '../../../core/exceptions/app_exception.dart';
@@ -17,6 +18,7 @@ class OtpVerificationScreen extends StatefulWidget {
   final String? password;
   final String purpose;
   final bool isPhone;
+  final String? reqId;
 
   const OtpVerificationScreen({
     super.key,
@@ -24,6 +26,7 @@ class OtpVerificationScreen extends StatefulWidget {
     this.password,
     this.purpose = 'signup',
     this.isPhone = false,
+    this.reqId,
   });
 
   @override
@@ -38,6 +41,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
   bool _isLoading = false;
   bool _isResending = false;
+  String? _currentReqId;
 
   static const _resendCooldown = 60;
   int _resendSecondsLeft = _resendCooldown;
@@ -46,7 +50,19 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   @override
   void initState() {
     super.initState();
+    _currentReqId = widget.reqId;
     _startResendCooldown();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_currentReqId == null) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map && args['req_id'] != null) {
+        _currentReqId = args['req_id'] as String?;
+      }
+    }
   }
 
   void _startResendCooldown() {
@@ -159,11 +175,45 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     try {
       if (widget.isPhone) {
         try {
+          final res = await SupabaseService.client.functions.invoke(
+            'phone-auth',
+            body: {
+              'phone': widget.contactInfo,
+              'reqId': _currentReqId ?? '',
+              'otp': otpCode,
+            },
+          ).timeout(
+            const Duration(seconds: 20),
+            onTimeout: () => throw const ServerException(
+              'Verification timed out. Please check your connection.',
+              'timeout',
+            ),
+          );
+
+          if (res.status != 200 || res.data == null) {
+            final err = res.data is Map ? res.data['error']?.toString() : null;
+            _showError(err ?? 'Invalid or expired OTP. Please try again.');
+            _clearAllOtpBoxes();
+            if (mounted) setState(() => _isLoading = false);
+            return;
+          }
+
+          final email = res.data['email'] as String?;
+          final token = res.data['token'] as String?;
+
+          if (email == null || token == null) {
+            _showError('Authentication session failed. Please try again.');
+            _clearAllOtpBoxes();
+            if (mounted) setState(() => _isLoading = false);
+            return;
+          }
+
+          // Exchange magiclink OTP for live Supabase Auth session
           await SupabaseService.client.auth
               .verifyOTP(
-                phone: widget.contactInfo,
-                token: otpCode,
-                type: OtpType.sms,
+                email: email,
+                token: token,
+                type: OtpType.magiclink,
               )
               .timeout(const Duration(seconds: 15));
         } on AuthException catch (e) {
@@ -171,7 +221,19 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           _clearAllOtpBoxes();
           if (mounted) setState(() => _isLoading = false);
           return;
+        } on ServerException catch (e) {
+          _showError(e.message);
+          _clearAllOtpBoxes();
+          if (mounted) setState(() => _isLoading = false);
+          return;
+        } catch (e) {
+          debugPrint('[Phone Verify Error]: $e');
+          _showError('Verification failed. Please try again.');
+          _clearAllOtpBoxes();
+          if (mounted) setState(() => _isLoading = false);
+          return;
         }
+
         _showSuccess('Verification successful!');
         if (mounted) await authProvider.refreshProfile();
         if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
@@ -353,9 +415,22 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     setState(() => _isResending = true);
     try {
       if (widget.isPhone) {
-        await SupabaseService.client.auth
-            .signInWithOtp(phone: widget.contactInfo)
-            .timeout(const Duration(seconds: 20));
+        if (_currentReqId != null && _currentReqId!.isNotEmpty) {
+          final res = await Msg91OtpService.instance.retryOtp(reqId: _currentReqId!);
+          if (!res.isSuccess) {
+            final freshSend = await Msg91OtpService.instance.sendOtp(widget.contactInfo);
+            if (!freshSend.isSuccess) {
+              throw ServerException(freshSend.message, 'otp_error');
+            }
+            _currentReqId = freshSend.reqId;
+          }
+        } else {
+          final freshSend = await Msg91OtpService.instance.sendOtp(widget.contactInfo);
+          if (!freshSend.isSuccess) {
+            throw ServerException(freshSend.message, 'otp_error');
+          }
+          _currentReqId = freshSend.reqId;
+        }
       } else {
         final response = await SupabaseService.client.functions
             .invoke(
