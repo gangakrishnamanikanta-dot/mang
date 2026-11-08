@@ -205,3 +205,4 @@ CREATE TRIGGER trg_profile_visit_notification
 AFTER INSERT ON public.profile_views
 FOR EACH ROW
 EXECUTE FUNCTION public.handle_profile_visit_notification();
+
