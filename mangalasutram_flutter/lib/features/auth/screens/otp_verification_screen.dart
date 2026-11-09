@@ -416,7 +416,10 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     try {
       if (widget.isPhone) {
         if (_currentReqId != null && _currentReqId!.isNotEmpty) {
-          final res = await Msg91OtpService.instance.retryOtp(reqId: _currentReqId!);
+          final res = await Msg91OtpService.instance.retryOtp(
+            reqId: _currentReqId!,
+            phone: widget.contactInfo,
+          );
           if (!res.isSuccess) {
             final freshSend = await Msg91OtpService.instance.sendOtp(widget.contactInfo);
             if (!freshSend.isSuccess) {

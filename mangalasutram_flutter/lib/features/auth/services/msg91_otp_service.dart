@@ -1,7 +1,7 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import '../../../config/env.dart';
+import 'supabase_service.dart';
 
 /// Response models for MSG91 OTP interactions
 class Msg91OtpResult {
@@ -28,21 +28,13 @@ class Msg91VerifyResult {
   });
 }
 
-/// Enterprise-grade MSG91 OTP Widget (v5) Service
-/// Directly handles mobile widget routing, redirect resolution, retry and verification.
+/// Enterprise-grade MSG91 Phone Auth Service
+/// Routes all OTP dispatch, retry, and verification through the secure
+/// Supabase Edge Function ('phone-auth') to keep API master secrets protected
+/// and strictly enforce server-side rate-limiting.
 class Msg91OtpService {
   Msg91OtpService._();
   static final Msg91OtpService instance = Msg91OtpService._();
-
-  static const String _sendOtpUrl =
-      'https://control.msg91.com/api/v5/widget/sendOtpMobile';
-  static const String _retryOtpUrl =
-      'https://control.msg91.com/api/v5/widget/retryOtp';
-  static const String _verifyOtpUrl =
-      'https://control.msg91.com/api/v5/widget/verifyOtp';
-
-  String get _widgetId => Env.msg91WidgetId;
-  String get _tokenAuth => Env.msg91AuthToken;
 
   /// Sanitizes phone numbers into canonical Indian format: 91XXXXXXXXXX
   String formatIndianPhoneNumber(String rawPhone) {
@@ -57,67 +49,84 @@ class Msg91OtpService {
     return clean;
   }
 
-  /// Sends 6-digit SMS OTP via MSG91 Mobile Widget
+  /// Extracts 10-digit canonical mobile number from any format
+  String getClean10Digit(String rawPhone) {
+    final formatted = formatIndianPhoneNumber(rawPhone);
+    if (formatted.startsWith('91') && formatted.length == 12) {
+      return formatted.substring(2);
+    }
+    return formatted;
+  }
+
+  /// Sends 6-digit SMS OTP via the secure server-side phone-auth Edge Function
   Future<Msg91OtpResult> sendOtp(String phone) async {
-    final identifier = formatIndianPhoneNumber(phone);
-    if (!RegExp(r'^91[6-9]\d{9}$').hasMatch(identifier)) {
+    final cleanPhone = getClean10Digit(phone);
+    if (!RegExp(r'^[6-9]\d{9}$').hasMatch(cleanPhone)) {
       return const Msg91OtpResult(
         isSuccess: false,
         message: 'Please enter a valid 10-digit Indian mobile number.',
       );
     }
 
-    HttpClient? client;
     try {
-      client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
-      final uri = Uri.parse(_sendOtpUrl);
-      final request = await client.postUrl(uri);
-      request.followRedirects = false;
-      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      final res = await SupabaseService.client.functions
+          .invoke(
+            'phone-auth',
+            body: {
+              'action': 'send',
+              'phone': cleanPhone,
+            },
+          )
+          .timeout(const Duration(seconds: 15));
 
-      final payload = jsonEncode({
-        'widgetId': _widgetId,
-        'tokenAuth': _tokenAuth,
-        'identifier': identifier,
-      });
-      request.write(payload);
-
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-
-      // Check for 302 Redirect to otpwidget.msg91.com
-      if (response.statusCode == 302 || response.statusCode == 301) {
-        final redirectLocation = response.headers.value(HttpHeaders.locationHeader);
-        if (redirectLocation != null && redirectLocation.isNotEmpty) {
-          final redirectUri = Uri.parse(redirectLocation);
-          final redirectReq = await client.getUrl(redirectUri);
-          final redirectRes = await redirectReq.close();
-          final redirectBody = await redirectRes.transform(utf8.decoder).join();
-          return _parseOtpResponse(redirectRes.statusCode, redirectBody);
-        }
+      if (res.status == 429) {
+        final err = res.data is Map ? res.data['error']?.toString() : null;
+        return Msg91OtpResult(
+          isSuccess: false,
+          message: err ?? 'Too many OTP requests. Please wait a moment.',
+        );
       }
 
-      return _parseOtpResponse(response.statusCode, body);
+      if (res.status != 200 || res.data == null) {
+        final err = res.data is Map ? res.data['error']?.toString() : null;
+        return Msg91OtpResult(
+          isSuccess: false,
+          message: err ?? 'Failed to deliver SMS OTP. Please try again.',
+        );
+      }
+
+      final data = res.data is Map ? res.data as Map : {};
+      final reqId = data['reqId']?.toString();
+      final msg = data['message']?.toString() ?? 'OTP sent successfully via SMS.';
+
+      return Msg91OtpResult(
+        isSuccess: true,
+        reqId: reqId,
+        message: msg,
+      );
+    } on TimeoutException {
+      return const Msg91OtpResult(
+        isSuccess: false,
+        message: 'SMS request timed out. Please check your internet connection.',
+      );
     } on SocketException {
       return const Msg91OtpResult(
         isSuccess: false,
-        message: 'Cannot reach SMS server. Please check your internet connection.',
+        message: 'Cannot reach server. Please check your internet connection.',
       );
     } catch (e) {
       debugPrint('[Msg91OtpService.sendOtp error]: $e');
       return Msg91OtpResult(
         isSuccess: false,
-        message: 'Failed to deliver SMS OTP: ${e.toString()}',
+        message: 'Failed to dispatch SMS OTP: ${e.toString()}',
       );
-    } finally {
-      client?.close();
     }
   }
 
-  /// Resends / retries OTP on SMS channel
+  /// Resends / retries OTP on SMS channel via the secure server-side Edge Function
   Future<Msg91OtpResult> retryOtp({
     required String reqId,
+    String? phone,
     int retryChannel = 11, // 11 = SMS
   }) async {
     if (reqId.isEmpty) {
@@ -127,29 +136,42 @@ class Msg91OtpService {
       );
     }
 
-    HttpClient? client;
     try {
-      client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
-      final uri = Uri.parse(_retryOtpUrl);
-      final request = await client.postUrl(uri);
-      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      final res = await SupabaseService.client.functions
+          .invoke(
+            'phone-auth',
+            body: {
+              'action': 'resend',
+              'reqId': reqId,
+              'phone': phone != null ? getClean10Digit(phone) : '9999999999',
+              'retryChannel': retryChannel,
+            },
+          )
+          .timeout(const Duration(seconds: 15));
 
-      final payload = jsonEncode({
-        'widgetId': _widgetId,
-        'tokenAuth': _tokenAuth,
-        'reqId': reqId,
-        'retryChannel': retryChannel,
-      });
-      request.write(payload);
+      if (res.status != 200 || res.data == null) {
+        final err = res.data is Map ? res.data['error']?.toString() : null;
+        return Msg91OtpResult(
+          isSuccess: false,
+          message: err ?? 'Resend failed. Please request a new OTP.',
+        );
+      }
 
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      return _parseOtpResponse(response.statusCode, body);
+      final data = res.data is Map ? res.data as Map : {};
+      return Msg91OtpResult(
+        isSuccess: true,
+        reqId: data['reqId']?.toString() ?? reqId,
+        message: data['message']?.toString() ?? 'OTP resent successfully.',
+      );
+    } on TimeoutException {
+      return const Msg91OtpResult(
+        isSuccess: false,
+        message: 'Resend request timed out. Please check your connection.',
+      );
     } on SocketException {
       return const Msg91OtpResult(
         isSuccess: false,
-        message: 'Cannot connect to SMS server. Please check your connection.',
+        message: 'Cannot connect to server. Please check your connection.',
       );
     } catch (e) {
       debugPrint('[Msg91OtpService.retryOtp error]: $e');
@@ -157,8 +179,6 @@ class Msg91OtpService {
         isSuccess: false,
         message: 'Resend failed: ${e.toString()}',
       );
-    } finally {
-      client?.close();
     }
   }
 
@@ -166,6 +186,7 @@ class Msg91OtpService {
   Future<Msg91VerifyResult> verifyOtp({
     required String reqId,
     required String otp,
+    String? phone,
   }) async {
     final cleanOtp = otp.trim();
     if (cleanOtp.length != 6) {
@@ -175,54 +196,47 @@ class Msg91OtpService {
       );
     }
 
-    HttpClient? client;
     try {
-      client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
-      final uri = Uri.parse(_verifyOtpUrl);
-      final request = await client.postUrl(uri);
-      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      final res = await SupabaseService.client.functions
+          .invoke(
+            'phone-auth',
+            body: {
+              'action': 'verify',
+              'reqId': reqId,
+              'otp': cleanOtp,
+              'phone': phone != null ? getClean10Digit(phone) : '9999999999',
+            },
+          )
+          .timeout(const Duration(seconds: 20));
 
-      final payload = jsonEncode({
-        'widgetId': _widgetId,
-        'tokenAuth': _tokenAuth,
-        'reqId': reqId,
-        'otp': cleanOtp,
-      });
-      request.write(payload);
-
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-
-      try {
-        final data = jsonDecode(body) as Map<String, dynamic>;
-        final type = data['type']?.toString().toLowerCase();
-        final message = data['message']?.toString() ?? '';
-
-        if (type == 'success' || message.toLowerCase().contains('success')) {
-          return Msg91VerifyResult(
-            isValid: true,
-            message: 'OTP verified successfully.',
-            token: data['jwtToken']?.toString() ?? message,
-          );
-        } else {
-          return Msg91VerifyResult(
-            isValid: false,
-            message: message.isNotEmpty ? message : 'Invalid or expired OTP.',
-          );
-        }
-      } catch (_) {
-        if (response.statusCode == 200) {
-          return const Msg91VerifyResult(
-            isValid: true,
-            message: 'OTP verified successfully.',
-          );
-        }
-        return Msg91VerifyResult(
+      if (res.status == 429) {
+        return const Msg91VerifyResult(
           isValid: false,
-          message: 'Verification failed with status ${response.statusCode}.',
+          message: 'Too many attempts. Please wait 10 minutes before retrying.',
         );
       }
+
+      if (res.status != 200 || res.data == null) {
+        final err = res.data is Map ? res.data['error']?.toString() : null;
+        return Msg91VerifyResult(
+          isValid: false,
+          message: err ?? 'Invalid or expired OTP. Please try again.',
+        );
+      }
+
+      final data = res.data is Map ? res.data as Map : {};
+      final token = data['token']?.toString();
+
+      return Msg91VerifyResult(
+        isValid: true,
+        message: 'OTP verified successfully.',
+        token: token,
+      );
+    } on TimeoutException {
+      return const Msg91VerifyResult(
+        isValid: false,
+        message: 'Verification request timed out. Please check your connection.',
+      );
     } on SocketException {
       return const Msg91VerifyResult(
         isValid: false,
@@ -233,40 +247,6 @@ class Msg91OtpService {
       return Msg91VerifyResult(
         isValid: false,
         message: 'Verification failed: ${e.toString()}',
-      );
-    } finally {
-      client?.close();
-    }
-  }
-
-  Msg91OtpResult _parseOtpResponse(int statusCode, String rawBody) {
-    try {
-      final json = jsonDecode(rawBody) as Map<String, dynamic>;
-      final type = json['type']?.toString().toLowerCase();
-      final message = json['message']?.toString() ?? '';
-
-      if (type == 'success' || statusCode == 200) {
-        return Msg91OtpResult(
-          isSuccess: true,
-          reqId: message.isNotEmpty ? message : null,
-          message: 'OTP sent successfully via SMS.',
-        );
-      } else {
-        return Msg91OtpResult(
-          isSuccess: false,
-          message: message.isNotEmpty ? message : 'Failed to send OTP.',
-        );
-      }
-    } catch (_) {
-      if (statusCode == 200) {
-        return const Msg91OtpResult(
-          isSuccess: true,
-          message: 'OTP sent successfully.',
-        );
-      }
-      return Msg91OtpResult(
-        isSuccess: false,
-        message: 'SMS provider responded with HTTP $statusCode.',
       );
     }
   }

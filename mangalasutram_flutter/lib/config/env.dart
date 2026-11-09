@@ -16,9 +16,6 @@ class Env {
   static String get msg91WidgetId =>
       dotenv.env['MSG91_WIDGET_ID'] ?? '366b62693452303433313336';
 
-  static String get msg91AuthToken =>
-      dotenv.env['MSG91_AUTH_TOKEN'] ?? '586282TgAlDShmz0jX6ae8a40dP1';
-
   static void validate() {
     final missing = <String>[];
     if (dotenv.env['SUPABASE_URL'] == null || dotenv.env['SUPABASE_URL']!.isEmpty) {

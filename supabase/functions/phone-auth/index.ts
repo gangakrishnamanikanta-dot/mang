@@ -10,31 +10,29 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+function sanitizePhone(rawPhone: string): string {
+  let clean = String(rawPhone || "").replace(/\D/g, "");
+  if (clean.startsWith("0")) clean = clean.substring(1);
+  if (clean.startsWith("91") && clean.length === 12) {
+    clean = clean.substring(2);
+  }
+  return clean;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const { phone, reqId, otp } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const action = body.action || (body.otp ? "verify" : "send");
+    const { phone, reqId, otp, retryChannel } = body;
 
-    if (!phone || !reqId || !otp) {
+    const cleanPhone = sanitizePhone(phone);
+    if (!cleanPhone || cleanPhone.length !== 10 || !/^[6-9]\d{9}$/.test(cleanPhone)) {
       return new Response(
-        JSON.stringify({ error: "Phone number, reqId, and OTP code are required" }),
-        { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
-      );
-    }
-
-    // Sanitize phone number to canonical 10 digits
-    let cleanPhone = String(phone).replace(/\D/g, "");
-    if (cleanPhone.startsWith("0")) cleanPhone = cleanPhone.substring(1);
-    if (cleanPhone.startsWith("91") && cleanPhone.length === 12) {
-      cleanPhone = cleanPhone.substring(2);
-    }
-
-    if (cleanPhone.length !== 10) {
-      return new Response(
-        JSON.stringify({ error: "Invalid 10-digit Indian mobile number" }),
+        JSON.stringify({ error: "Please enter a valid 10-digit Indian mobile number" }),
         { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
       );
     }
@@ -44,10 +42,179 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // 1. Anti-Brute-Force Rate Limiting (Max 5 failed attempts in 10 minutes)
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
 
+    // =========================================================================
+    // ACTION 1: SEND OTP (Server-Mediated MSG91 Dispatch with Anti-Abuse Rate Limiting)
+    // =========================================================================
+    if (action === "send") {
+      const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const oneMinAgo = new Date(Date.now() - 60 * 1000).toISOString();
+
+      // 1. Enforce 60-second cooldown between sends for the same phone
+      const { data: recentSends } = await supabaseClient
+        .from("otp_rate_limits")
+        .select("last_attempt_at")
+        .eq("identifier", cleanPhone)
+        .eq("identifier_type", "phone_send")
+        .gte("last_attempt_at", oneMinAgo)
+        .limit(1);
+
+      if (recentSends && recentSends.length > 0) {
+        return new Response(
+          JSON.stringify({ error: "Please wait 60 seconds before requesting another SMS OTP." }),
+          { status: 429, headers: { "Content-Type": "application/json", ...corsHeaders } }
+        );
+      }
+
+      // 2. Enforce max 4 sends per 10 minutes per phone
+      const { data: phoneTenMinSends } = await supabaseClient
+        .from("otp_rate_limits")
+        .select("id")
+        .eq("identifier", cleanPhone)
+        .eq("identifier_type", "phone_send")
+        .gte("last_attempt_at", tenMinAgo);
+
+      if (phoneTenMinSends && phoneTenMinSends.length >= 4) {
+        return new Response(
+          JSON.stringify({ error: "Too many SMS requests for this number. Please wait 10 minutes." }),
+          { status: 429, headers: { "Content-Type": "application/json", ...corsHeaders } }
+        );
+      }
+
+      // 3. Enforce max 12 sends per 10 minutes per IP
+      const { data: ipTenMinSends } = await supabaseClient
+        .from("otp_rate_limits")
+        .select("id")
+        .eq("identifier", clientIp)
+        .eq("identifier_type", "ip_send")
+        .gte("last_attempt_at", tenMinAgo);
+
+      if (ipTenMinSends && ipTenMinSends.length >= 12) {
+        return new Response(
+          JSON.stringify({ error: "Too many requests from this network. Please try again later." }),
+          { status: 429, headers: { "Content-Type": "application/json", ...corsHeaders } }
+        );
+      }
+
+      // 4. Dispatch SMS OTP via MSG91 Mobile Widget API
+      const msg91SendUrl = "https://control.msg91.com/api/v5/widget/sendOtpMobile";
+      const sendPayload = {
+        widgetId: MSG91_WIDGET_ID,
+        tokenAuth: MSG91_AUTH_TOKEN,
+        identifier: `91${cleanPhone}`,
+      };
+
+      const msg91Res = await fetch(msg91SendUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(sendPayload),
+        redirect: "follow",
+      });
+
+      const msg91Text = await msg91Res.text();
+      let msg91Data: any = {};
+      try {
+        msg91Data = JSON.parse(msg91Text);
+      } catch (_) {}
+
+      const isSuccess =
+        msg91Data.type === "success" ||
+        msg91Res.status === 200 ||
+        (typeof msg91Data.message === "string" && msg91Data.message.length > 10);
+
+      if (!isSuccess) {
+        console.error("[phone-auth send error]:", msg91Data);
+        return new Response(
+          JSON.stringify({ error: msg91Data.message || "Failed to dispatch SMS OTP. Please try again." }),
+          { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
+        );
+      }
+
+      // Record successful send for rate limiting
+      await supabaseClient.from("otp_rate_limits").insert([
+        { identifier: cleanPhone, identifier_type: "phone_send" },
+        { identifier: clientIp, identifier_type: "ip_send" },
+      ]);
+
+      const dispatchedReqId = msg91Data.message || msg91Data.reqId || msg91Data.data?.reqId || "";
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          reqId: dispatchedReqId,
+          message: "SMS OTP dispatched successfully.",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+
+    // =========================================================================
+    // ACTION 2: RESEND / RETRY OTP
+    // =========================================================================
+    if (action === "resend" || action === "retry") {
+      if (!reqId) {
+        return new Response(
+          JSON.stringify({ error: "reqId is required to resend OTP" }),
+          { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
+        );
+      }
+
+      const msg91RetryUrl = "https://control.msg91.com/api/v5/widget/retryOtp";
+      const retryPayload = {
+        widgetId: MSG91_WIDGET_ID,
+        tokenAuth: MSG91_AUTH_TOKEN,
+        reqId: String(reqId).trim(),
+        retryChannel: retryChannel || 11, // 11 = SMS
+      };
+
+      const msg91Res = await fetch(msg91RetryUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(retryPayload),
+        redirect: "follow",
+      });
+
+      const msg91Text = await msg91Res.text();
+      let msg91Data: any = {};
+      try {
+        msg91Data = JSON.parse(msg91Text);
+      } catch (_) {}
+
+      const isSuccess =
+        msg91Data.type === "success" ||
+        msg91Res.status === 200 ||
+        (typeof msg91Data.message === "string" && !msg91Data.message.toLowerCase().includes("error"));
+
+      if (!isSuccess) {
+        return new Response(
+          JSON.stringify({ error: msg91Data.message || "Failed to resend SMS OTP." }),
+          { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          reqId: String(reqId).trim(),
+          message: "SMS OTP resent successfully.",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+
+    // =========================================================================
+    // ACTION 3: VERIFY OTP & SESSION PROVISIONING
+    // =========================================================================
+    if (!reqId || !otp) {
+      return new Response(
+        JSON.stringify({ error: "Both reqId and 6-digit OTP code are required for verification." }),
+        { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+
+    // 1. Anti-Brute-Force Rate Limiting (Max 5 failed attempts in 10 minutes)
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     const { data: recentAttempts } = await supabaseClient
       .from("otp_rate_limits")
       .select("id")
@@ -65,13 +232,14 @@ serve(async (req) => {
     const msg91VerifyUrl = "https://control.msg91.com/api/v5/widget/verifyOtp";
     const msg91Res = await fetch(msg91VerifyUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
       body: JSON.stringify({
         widgetId: MSG91_WIDGET_ID,
         tokenAuth: MSG91_AUTH_TOKEN,
         reqId: String(reqId).trim(),
         otp: String(otp).trim(),
       }),
+      redirect: "follow",
     });
 
     const msg91Text = await msg91Res.text();
@@ -105,22 +273,23 @@ serve(async (req) => {
       .delete()
       .or(`identifier.eq.${cleanPhone},identifier.eq.${clientIp}`);
 
-    // 4. Intelligent Account Matching: Check if an existing profile has this phone number
+    // 4. Intelligent Account Matching: Safe lookup without .maybeSingle() crash on duplicates
     const formattedPhone = `+91${cleanPhone}`;
     const syntheticEmail = `phone_${cleanPhone}@phone.mangalsutram.in`;
 
-    const { data: existingProfile } = await supabaseClient
+    const { data: matchedProfiles } = await supabaseClient
       .from("profiles")
       .select("id, email, phone")
       .or(`phone.eq.${cleanPhone},phone.eq.${formattedPhone},phone.eq.91${cleanPhone},phone.eq.0${cleanPhone}`)
-      .limit(1)
-      .maybeSingle();
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const existingProfile = matchedProfiles && matchedProfiles.length > 0 ? matchedProfiles[0] : null;
 
     let targetEmail = syntheticEmail;
     let userId: string | null = null;
 
     if (existingProfile && existingProfile.email && existingProfile.email.includes("@")) {
-      // User registered previously via Email or Google; log directly into their existing account!
       targetEmail = existingProfile.email.trim();
       userId = existingProfile.id;
     } else if (existingProfile) {
@@ -168,11 +337,13 @@ serve(async (req) => {
     }
 
     // 6. Ensure profile record exists
-    const { data: checkProf } = await supabaseClient
+    const { data: checkProfList } = await supabaseClient
       .from("profiles")
-      .select("id")
+      .select("id, phone")
       .eq("id", userId)
-      .maybeSingle();
+      .limit(1);
+
+    const checkProf = checkProfList && checkProfList.length > 0 ? checkProfList[0] : null;
 
     if (!checkProf) {
       await supabaseClient.from("profiles").upsert(
@@ -185,7 +356,6 @@ serve(async (req) => {
         { onConflict: "id" }
       );
     } else if (!checkProf.phone || checkProf.phone.trim() === "") {
-      // Backfill verified phone if missing
       await supabaseClient
         .from("profiles")
         .update({ phone: cleanPhone })
