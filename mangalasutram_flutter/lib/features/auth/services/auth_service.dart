@@ -11,6 +11,7 @@ import '../../notifications/services/fcm_messaging_service.dart';
 import '../../home/services/home_service.dart';
 import '../../subscription/services/subscription_service.dart';
 import '../../messaging/services/e2ee_crypto_service.dart';
+import '../../family/services/family_service.dart';
 
 class AuthService {
   late final GoogleSignIn _googleSignIn;
@@ -68,7 +69,11 @@ class AuthService {
     }
   }
 
-  Future<void> signInWithGoogle() async {
+  Future<void> signInWithGoogle({
+    bool isGuardian = false,
+    String? guardianRole,
+    String? familyCode,
+  }) async {
     try {
       await _googleSignIn.signOut();
     } catch (_) {}
@@ -111,8 +116,17 @@ class AuthService {
                 'email': response.user!.email ?? '',
                 'full_name': googleUser.displayName ?? '',
                 'profile_photo_url': googleUser.photoUrl,
+                'account_type': isGuardian ? 'guardian' : 'candidate',
               })
               .timeout(const Duration(seconds: 10));
+
+          if (isGuardian && familyCode != null && familyCode.isNotEmpty) {
+            await FamilyService.instance.joinCircleWithResult(
+              inviteCode: familyCode,
+              role: guardianRole ?? 'Parent',
+              displayName: googleUser.displayName ?? (guardianRole ?? 'Parent'),
+            );
+          }
         }
       }
     } catch (e) {

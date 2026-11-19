@@ -18,7 +18,11 @@ class MockAuthService implements AuthService {
   Future<Profile?> getCurrentProfile() async => null;
 
   @override
-  Future<void> signInWithGoogle() async {}
+  Future<void> signInWithGoogle({
+    bool isGuardian = false,
+    String? guardianRole,
+    String? familyCode,
+  }) async {}
 }
 
 void main() {

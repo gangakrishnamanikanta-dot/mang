@@ -9,6 +9,7 @@ import 'widgets/password_strength_indicator.dart';
 import '../../../core/di.dart';
 import '../services/auth_service.dart';
 import '../services/supabase_service.dart';
+import '../services/pending_signup_credentials.dart';
 import '../providers/auth_provider.dart';
 import '../../../core/exceptions/app_exception.dart';
 
@@ -146,6 +147,20 @@ class _SignupScreenState extends State<SignupScreen> {
 
     setState(() => _isSubmitting = true);
     try {
+      if (_isGuardian) {
+        final code = _familyCodeCtrl.text.trim().toUpperCase();
+        final validation = await SupabaseService.client.rpc(
+          'validate_family_invite_code',
+          params: {'p_invite_code': code},
+        );
+        if (validation is Map && validation['valid'] != true) {
+          throw ServerException(
+            validation['message'] as String? ?? 'Invalid family invite code. Please verify with the candidate.',
+            'invalid_family_code',
+          );
+        }
+      }
+
       final response = await SupabaseService.client.functions
           .invoke(
             'send-otp',
@@ -168,6 +183,10 @@ class _SignupScreenState extends State<SignupScreen> {
 
       if (!mounted) return;
       _showSuccess('Verification code sent to $email');
+      
+      // Store password in ephemeral memory, never passed in navigation route arguments
+      PendingSignupCredentials.instance.storePassword(password);
+
       Navigator.pushNamed(
         context,
         '/otp-verification',
@@ -175,7 +194,6 @@ class _SignupScreenState extends State<SignupScreen> {
           'email': email,
           'purpose': 'signup',
           'name': name,
-          'password': password,
           'consented_at': DateTime.now().toUtc().toIso8601String(),
           'is_guardian': _isGuardian,
           'guardian_role': _selectedGuardianRole,
@@ -201,12 +219,40 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
 
+    if (_isGuardian) {
+      final code = _familyCodeCtrl.text.trim();
+      if (code.isEmpty) {
+        _showError('Please enter your candidate\'s 6-character Family Code');
+        return;
+      }
+    }
+
     setState(() => _isSubmitting = true);
     try {
-      await _authService.signInWithGoogle();
+      if (_isGuardian) {
+        final code = _familyCodeCtrl.text.trim().toUpperCase();
+        final validation = await SupabaseService.client.rpc(
+          'validate_family_invite_code',
+          params: {'p_invite_code': code},
+        );
+        if (validation is Map && validation['valid'] != true) {
+          throw ServerException(
+            validation['message'] as String? ?? 'Invalid family invite code. Please verify with the candidate.',
+            'invalid_family_code',
+          );
+        }
+      }
+
+      await _authService.signInWithGoogle(
+        isGuardian: _isGuardian,
+        guardianRole: _selectedGuardianRole,
+        familyCode: _familyCodeCtrl.text.trim().toUpperCase(),
+      );
       if (!mounted) return;
       await context.read<AuthProvider>().refreshProfile();
       _showSuccess('Account created successfully!');
+    } on ServerException catch (e) {
+      _showError(e.message);
     } on AuthException catch (e) {
       _showError(_friendlyAuthMessage(e.message));
     } on AppException catch (e) {

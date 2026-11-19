@@ -11,6 +11,7 @@ import '../services/supabase_service.dart';
 import '../services/msg91_otp_service.dart';
 import '../providers/auth_provider.dart';
 import '../../family/services/family_service.dart';
+import '../services/pending_signup_credentials.dart';
 import '../../../core/exceptions/app_exception.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
@@ -85,6 +86,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   @override
   void dispose() {
     _resendTimer?.cancel();
+    PendingSignupCredentials.instance.clear();
     for (var c in _controllers) {
       c.dispose();
     }
@@ -164,7 +166,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     final routeArgs =
         ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
     final welcomeName = (routeArgs?['name'] as String?)?.trim();
-    final password = (routeArgs?['password'] as String?) ?? widget.password;
+    final password = PendingSignupCredentials.instance.retrieveAndClearPassword() ??
+        (routeArgs?['password'] as String?) ??
+        widget.password;
 
     final isGuardian = routeArgs?['is_guardian'] == true;
     final guardianRole = (routeArgs?['guardian_role'] as String?) ?? 'Parent';
