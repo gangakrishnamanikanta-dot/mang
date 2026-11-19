@@ -49,3 +49,4 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.validate_family_invite_code(text) TO anon, authenticated, service_role;
+

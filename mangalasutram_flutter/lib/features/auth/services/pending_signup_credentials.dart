@@ -17,20 +17,19 @@ class PendingSignupCredentials {
     _storedAt = DateTime.now();
   }
 
-  /// Retrieves the password and immediately scrubs it from memory.
+  /// Retrieves the password without premature deletion so users can retry
+  /// mistyped OTP codes without losing their registration session.
   /// Automatically expires after 10 minutes.
-  String? retrieveAndClearPassword() {
+  String? getPassword() {
     if (_storedAt != null && DateTime.now().difference(_storedAt!).inMinutes > 10) {
       debugPrint('[PendingSignupCredentials] Pending password expired in memory.');
       clear();
       return null;
     }
-    final pwd = _password;
-    clear();
-    return pwd;
+    return _password;
   }
 
-  /// Scrubs the credentials immediately
+  /// Scrubs the credentials immediately upon successful authentication or screen dismissal
   void clear() {
     _password = null;
     _storedAt = null;

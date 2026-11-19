@@ -166,7 +166,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     final routeArgs =
         ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
     final welcomeName = (routeArgs?['name'] as String?)?.trim();
-    final password = PendingSignupCredentials.instance.retrieveAndClearPassword() ??
+    final password = PendingSignupCredentials.instance.getPassword() ??
         (routeArgs?['password'] as String?) ??
         widget.password;
 
@@ -361,6 +361,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           _showSuccess(isGuardian
               ? 'Verification successful! Welcome to your Family Circle.'
               : "Verification successful! Let's build your sacred profile.");
+
+          PendingSignupCredentials.instance.clear();
 
           if (mounted) {
             await authProvider.refreshProfile();

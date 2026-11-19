@@ -53,3 +53,4 @@ CREATE TRIGGER trg_notification_push_dispatch
   AFTER INSERT ON public.notifications
   FOR EACH ROW
   EXECUTE FUNCTION public.handle_notification_push_dispatch();
+
