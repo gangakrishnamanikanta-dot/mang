@@ -39,6 +39,9 @@
 -keep class io.flutter.plugins.firebase.core.** { *; }
 -dontwarn io.flutter.plugins.firebase.core.**
 
+# Google Play Core (Flutter deferred components)
+-dontwarn com.google.android.play.core.**
+
 # Obfuscation
 -renamesourcefileattribute SourceFile
 -keepattributes SourceFile,LineNumberTable
