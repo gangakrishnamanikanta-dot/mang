@@ -18,6 +18,14 @@
           "client_type": 1,
           "android_info": {
             "package_name": "com.mangalasutram.mangalasutram",
+            "certificate_hash": "febdf39003cdfc304c96c6700a2948ace0b8627d"
+          }
+        },
+        {
+          "client_id": "373832655262-pvk56pjlv17eq17hhcfv9mf93omc7s00.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mangalasutram.mangalasutram",
             "certificate_hash": "a142519186254110be63d02acd0dcefc6ad0db72"
           }
         },
