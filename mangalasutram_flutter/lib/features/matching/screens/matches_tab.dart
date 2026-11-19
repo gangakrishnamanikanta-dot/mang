@@ -45,6 +45,7 @@ class _MatchesTabState extends State<MatchesTab>
   final PageController _pageCtrl = PageController();
 
   List<MatchResult> _allMatches = [];
+  Profile? _myProfile;
   bool _isLoading = true;
   bool _hasError = false;
 
@@ -211,6 +212,7 @@ class _MatchesTabState extends State<MatchesTab>
 
     try {
       final myProf = await _homeService.getMyProfile();
+      _myProfile = myProf;
       String? candidateId;
       if (myProf?.accountType == 'guardian') {
         final cand = await FamilyService.instance.getGuardianActiveCandidate();
@@ -337,30 +339,75 @@ class _MatchesTabState extends State<MatchesTab>
 
     // 1. Regular vs PRIME filter
     if (!_isRegular) {
-      // PRIME: Top-tier matches (score >= 80)
-      list = list.where((m) => m.matchScore >= 80.0).toList();
+      // PRIME: Top-tier matches (score >= 70)
+      final primeCandidates = list.where((m) => m.matchScore >= 70.0).toList();
+      if (primeCandidates.isNotEmpty) {
+        list = primeCandidates;
+      } else {
+        // Fallback gracefully so PRIME tab is never an empty screen
+        list.sort((a, b) => b.matchScore.compareTo(a.matchScore));
+        list = list.take(15).toList();
+      }
     }
 
-    // 2. Secondary Filter Chips
+    // 2. Secondary Filter & Priority Sorting (Industry-Standard)
     switch (_selectedFilter) {
       case MatchSortFilter.bestMatch:
         list.sort((a, b) => b.matchScore.compareTo(a.matchScore));
         break;
+
       case MatchSortFilter.onlineNow:
-        list = list
-            .where((m) =>
-                m.isOnline ||
-                (m.lastActiveLabel != null && m.lastActiveLabel!.contains('m ago')))
-            .toList()
-          ..sort((a, b) => b.matchScore.compareTo(a.matchScore));
+        // Priority sort: active/online users pinned to top, followed by remaining matches
+        list.sort((a, b) {
+          final aActive = a.isOnline ||
+              (a.lastActiveLabel != null &&
+                  (a.lastActiveLabel!.contains('m ago') ||
+                      a.lastActiveLabel!.contains('Active now') ||
+                      a.lastActiveLabel!.contains('Just now')));
+          final bActive = b.isOnline ||
+              (b.lastActiveLabel != null &&
+                  (b.lastActiveLabel!.contains('m ago') ||
+                      b.lastActiveLabel!.contains('Active now') ||
+                      b.lastActiveLabel!.contains('Just now')));
+          if (aActive != bActive) return aActive ? -1 : 1;
+          return b.matchScore.compareTo(a.matchScore);
+        });
         break;
+
       case MatchSortFilter.highGuna:
-        list = list.where((m) => (m.gunaScore ?? 0) >= 26).toList()
-          ..sort((a, b) => (b.gunaScore ?? 0).compareTo(a.gunaScore ?? 0));
+        // Priority sort: highest Vedic Ashta-Koota scores first
+        list.sort((a, b) {
+          final aScore = a.gunaScore ?? -1;
+          final bScore = b.gunaScore ?? -1;
+          if (aScore != bScore) return bScore.compareTo(aScore);
+          return b.matchScore.compareTo(a.matchScore);
+        });
         break;
+
       case MatchSortFilter.nearYou:
-        list.sort((a, b) => (b.city != null ? 1 : 0).compareTo(a.city != null ? 1 : 0));
+        // Priority sort: same city (+2 pts), same state (+1 pt), then best match
+        final myCity = _myProfile?.city?.trim().toLowerCase();
+        final myState = _myProfile?.state?.trim().toLowerCase();
+        list.sort((a, b) {
+          int scoreA = 0;
+          int scoreB = 0;
+          if (myCity != null && myCity.isNotEmpty && a.city?.trim().toLowerCase() == myCity) {
+            scoreA += 2;
+          }
+          if (myState != null && myState.isNotEmpty && a.state?.trim().toLowerCase() == myState) {
+            scoreA += 1;
+          }
+          if (myCity != null && myCity.isNotEmpty && b.city?.trim().toLowerCase() == myCity) {
+            scoreB += 2;
+          }
+          if (myState != null && myState.isNotEmpty && b.state?.trim().toLowerCase() == myState) {
+            scoreB += 1;
+          }
+          if (scoreA != scoreB) return scoreB.compareTo(scoreA);
+          return b.matchScore.compareTo(a.matchScore);
+        });
         break;
+
       case MatchSortFilter.newlyJoined:
         list.sort((a, b) {
           final aDate = a.createdAt != null ? DateTime.tryParse(a.createdAt!) : null;
@@ -373,10 +420,19 @@ class _MatchesTabState extends State<MatchesTab>
           return b.matchScore.compareTo(a.matchScore);
         });
         break;
+
       case MatchSortFilter.notContacted:
-        list = list
-            .where((m) => !_viewedProfileIds.contains(m.profileId))
+        // Prioritize uncontacted profiles; fallback to all if all are contacted
+        final uncontacted = list
+            .where((m) =>
+                !_viewedProfileIds.contains(m.profileId) &&
+                !_sentInterestProfileIds.contains(m.profileId))
             .toList();
+        if (uncontacted.isNotEmpty) {
+          list = uncontacted;
+        } else {
+          list.sort((a, b) => b.matchScore.compareTo(a.matchScore));
+        }
         break;
     }
 
@@ -1692,6 +1748,27 @@ class _MatchesTabState extends State<MatchesTab>
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
+            if (_selectedFilter != MatchSortFilter.bestMatch || !_isRegular)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _selectedFilter = MatchSortFilter.bestMatch;
+                      _isRegular = true;
+                    });
+                  },
+                  icon: const Icon(Icons.tune, size: 18),
+                  label: const Text('Reset All Filters'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF6E1732),
+                    side: const BorderSide(color: Color(0xFF6E1732)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                ),
+              ),
             ElevatedButton.icon(
               onPressed: () => _loadData(forceRefresh: true),
               icon: const Icon(Icons.refresh, size: 18),
