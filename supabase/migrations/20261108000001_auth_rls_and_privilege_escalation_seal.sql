@@ -123,3 +123,4 @@ GRANT ALL ON TABLE public.otps TO postgres;
 REVOKE ALL ON TABLE public.otp_rate_limits FROM PUBLIC, anon, authenticated;
 GRANT ALL ON TABLE public.otp_rate_limits TO service_role;
 GRANT ALL ON TABLE public.otp_rate_limits TO postgres;
+

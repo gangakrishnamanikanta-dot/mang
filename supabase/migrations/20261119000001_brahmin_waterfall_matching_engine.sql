@@ -534,3 +534,4 @@ GRANT EXECUTE ON FUNCTION public.get_top_matches_v2(uuid, integer, integer) TO a
 
 REVOKE ALL ON FUNCTION public.refresh_user_match_cache(uuid, boolean) FROM anon, public;
 REVOKE ALL ON FUNCTION public.get_top_matches_v2(uuid, integer, integer) FROM anon, public;
+

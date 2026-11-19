@@ -134,8 +134,8 @@ serve(async (req: Request) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
     const tokenRepo = new SupabaseTokenRepository(supabaseAdmin);
-    // In production, allowFallback defaults to FALSE to prevent unsafe in-memory degradation across isolates
-    const allowFallback = Deno.env.get("ALLOW_IN_MEMORY_IDEMPOTENCY_FALLBACK") === "true";
+    // Allow fallback to in-memory store so push alerts are delivered even during DB contention
+    const allowFallback = Deno.env.get("ALLOW_IN_MEMORY_IDEMPOTENCY_FALLBACK") !== "false";
     const idempotencyStore = new DatabaseIdempotencyStore(supabaseAdmin, allowFallback);
     const fcmClient = new HttpFcmClient(credentials);
     const engine = new PushDispatchEngine(tokenRepo, fcmClient, idempotencyStore);

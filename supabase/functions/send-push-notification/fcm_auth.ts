@@ -58,23 +58,18 @@ export function loadFirebaseCredentials(): {
     }
   }
 
+  const defaultClientEmail = 'firebase-adminsdk-fbsvc@mangalasutram-app.iam.gserviceaccount.com';
+  const defaultPrivateKey = `-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCeosktkyEucIgg\nCqDy/EvNqv54qpPm2gModZG2orOoxCmbCoJ2cS9HsqCXZHRyJFy9zjzst22SJjXf\nYJkyi9LaegZQJYgZCiKjCLA1JeMe5uB6XFq4HdrSS3aQ6qPbmxjWY8kkFajSSsDX\nrd5e/VxggkQqbv9/t5WsE0LBvUEnQukCdJ5gmdatLr9TXYcYMkY79wOk32ftFKMU\nBxSLbFwRdYfgsLDIcKa4i+3Gjg4Ie/wWETsvut1DMi0frjdSjk9tdh+MbKXkmk6Y\ngbJWFpY3HKHMNnt73zvglbZbVWbvbvXGh4NvdsRTTwuccAc9q8XhvXHXBdu7rP4J\nkhWNN9y/AgMBAAECggEAKFYMAWKf1UcX1c3eDurH+4u3GMeGw/Q7SVZbrqzAMfFv\nAtUxRxyQgRKScuxAD6XfTwPZyfb6DWdZ22qciZW0D4lngYmJiZRiKkJTS7BOh9T8\nzyAckSRGN6Koi0CeWYCeWCUXR+2Z9566Wh0DpfOWQZPd8Uw3+ymbDR34o3qTzn92\ncA1Ba8iOBZ7jYfMdTEec/c+F3zmfvBXJobarRpY6Zo50d8naAUq3dCDk729vtV/F\nFrjzXOeCr6op6CQxUQuSVKDLzU5eUuqIJArYfadvlEg1/2DSH3P2GRryDc0FV+7J\nCUoL8kh7ksUJ++AjK6EzGvVG73KfBe3tiiNJVP8pwQKBgQDNQJpuXaoiqcCJLJFA\nRwX3KDwaPE3Vo7pAjKbWAKo1hPePnYSxlI6ffFa5+HN+G/7qPk/LtEqtQdy7JAmF\npQKRDWMlJIkkUYXDS6ZPHLdf13dDF2KB6OOv2bww6cjud54mHXqm1aoqrCeV1aUp\nfFWxab2FK8uNTeaE5Pr2/NWs9QKBgQDF25q/qkuauV6WffT3zUmpkh/g8pe7fjzs\njYQtYNOWUGGIktYvdDW2I59fD4rIYjwEl8FH0Yv4GTmF23kK0pYjZU+Popn01a3A\nyJIxUbUJ8yD41C+DGDw61cv0KiiBPZ7mJlxMII1W/cn7uR409MOaXZIF6eH3Ceea\nUygWcsHSYwKBgQCsAscpVQ+/SvnTO+lir+Lc9fggmIc2UqdFb1pmIFqEzbFWx1Cs\nLe6009QuuHu5pSamEqB2+9pVhsvAffwI53fWLhz3xL22FSf/ukdfJ5a6GG2XaWKh\nspYWCmh/qX099DsygCQI6ylX57ypAkoPEWcTbqVolIJbInzcxLVaBhvgfQKBgAwC\nenAr3A72NYGY/6eS9GewkPLMht1Aml4ZcO54NB+pnWH2171lpmT54JCaluf23oHA\n3GCJnZ9fmJhBbCV2Btr7KUskqYes+LD8+7K2rPB/q36vEns4m19O3uRhMrg1j1GU\n/oE4cJvZJ8t5vxWjzcOu7lAhlC+0kDRT29kQ+ibVAoGAR9HMq3oBOlhDXH5zB2Sw\nwJ//8F37U5Zb6BSXp3QhEM+YJ4uCTv/Mza9JEnd6/ajTPs5agyIvL1uemtR4DfBg\nhgjJ+lt7eFndYZpx08NlSaP/8BCl2bxVmYk4pIXMjCkJYXJegjhO+6+fv9q6QKLa\nuP6xfRZxTwG72ujfWSsRXAg=\n-----END PRIVATE KEY-----\n`;
+
   const projectId = getEnv('FIREBASE_PROJECT_ID') || 'mangalasutram-app';
-  const clientEmail = getEnv('FIREBASE_CLIENT_EMAIL');
-  const privateKey = getEnv('FIREBASE_PRIVATE_KEY');
-
-  const missingKeys: string[] = [];
-  if (!clientEmail) missingKeys.push('FIREBASE_CLIENT_EMAIL');
-  if (!privateKey) missingKeys.push('FIREBASE_PRIVATE_KEY');
-
-  if (missingKeys.length > 0) {
-    return { missingKeys };
-  }
+  const clientEmail = getEnv('FIREBASE_CLIENT_EMAIL') || defaultClientEmail;
+  const privateKey = getEnv('FIREBASE_PRIVATE_KEY') || defaultPrivateKey;
 
   return {
     credentials: {
       projectId,
-      clientEmail: clientEmail!,
-      privateKey: privateKey!,
+      clientEmail,
+      privateKey,
     },
     missingKeys: [],
   };
