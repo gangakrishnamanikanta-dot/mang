@@ -31,6 +31,14 @@
 -keep class com.it_nomads.fluttersecurestorage.** { *; }
 -dontwarn com.it_nomads.fluttersecurestorage.**
 
+# Firebase Core & Messaging
+-keep class com.google.firebase.** { *; }
+-dontwarn com.google.firebase.**
+-keep class io.flutter.plugins.firebase.messaging.** { *; }
+-dontwarn io.flutter.plugins.firebase.messaging.**
+-keep class io.flutter.plugins.firebase.core.** { *; }
+-dontwarn io.flutter.plugins.firebase.core.**
+
 # Obfuscation
 -renamesourcefileattribute SourceFile
 -keepattributes SourceFile,LineNumberTable
