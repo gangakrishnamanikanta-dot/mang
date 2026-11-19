@@ -142,7 +142,7 @@ export class PushDispatchEngine {
             priority: 'high',
             notification: {
               channel_id: 'mangalasutram_high_importance',
-              icon: 'ic_notification',
+              icon: 'ic_launcher',
               color: '#6E1732',
             },
           },
